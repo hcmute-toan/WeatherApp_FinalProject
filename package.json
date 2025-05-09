@@ -20,7 +20,7 @@
     "expo-speech": "^13.1.7",
     "expo-status-bar": "~2.2.3",
     "lottie-react-native": "^7.2.2",
-    "react": "^19.0.0",
+    "react": "^19.1.0",
     "react-native": "^0.79.2",
     "react-native-safe-area-context": "^5.4.0",
     "react-native-screens": "^4.10.0"
