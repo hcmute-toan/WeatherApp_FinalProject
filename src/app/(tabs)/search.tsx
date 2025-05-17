@@ -1,175 +1,114 @@
 import { useState, useEffect } from 'react';
-import { SafeAreaView, Text, StyleSheet, TextInput, FlatList, View, TouchableOpacity } from 'react-native';
-import { APP_COLOR } from '../../utils/constant';
-import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView, Text, StyleSheet, View, TextInput, FlatList, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { searchCity, getCurrentWeather, getHourlyForecast, getDailyForecast } from '../../services/weather';
-import { City, WeatherData, HourlyForecast, DailyForecast } from '../../types/weather';
+import { getCurrentWeather } from '../../services/weather';
 import { router } from 'expo-router';
-import CustomFlatList from '../../components/CustomFlatList/CustomFlatList';
-import HourlyForecastItem from '../../components/HourlyForecastItem';
 
-const PlaceholderIcon = ({ style }: { style?: object }) => (
-  <View style={[{ width: 50, height: 50, backgroundColor: '#ccc', borderRadius: 25, justifyContent: 'center', alignItems: 'center' }, style]}>
-    <Text style={{ color: '#fff' }}>Icon</Text>
-  </View>
-);
-
-const SearchTab = () => {
+const SearchPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [locations, setLocations] = useState<City[]>([]);
-  const [weatherData, setWeatherData] = useState<{ [key: string]: WeatherData }>({});
-  const [favorites, setFavorites] = useState<City[]>([]);
-  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F' }>({ tempUnit: 'C' });
+  const [results, setResults] = useState<{ city: string; latitude: number; longitude: number; weather?: { temp: number; description: string } }[]>([]);
+  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
 
   useEffect(() => {
     (async () => {
-      try {
-        const savedFavorites = await AsyncStorage.getItem('favoriteCities');
-        if (savedFavorites) {
-          setFavorites(JSON.parse(savedFavorites));
-        }
-        const savedSettings = await AsyncStorage.getItem('settings');
-        if (savedSettings) {
-          setSettings(JSON.parse(savedSettings));
-        }
-      } catch (error) {
-        console.error('Error loading favorites or settings:', error);
+      const savedSettings = await AsyncStorage.getItem('settings');
+      if (savedSettings) {
+        setSettings(JSON.parse(savedSettings));
       }
     })();
   }, []);
 
-  useEffect(() => {
-    if (searchQuery.length > 2) {
-      (async () => {
-        try {
-          const cities = await searchCity(searchQuery);
-          setLocations(cities);
-          const weatherPromises = cities.map(async (city) => {
-            const weather = await getCurrentWeather({ latitude: city.latitude, longitude: city.longitude });
-            return { id: city.id.toString(), weather };
-          });
-          const weatherResults = await Promise.all(weatherPromises);
-          const newWeatherData = weatherResults.reduce((acc, { id, weather }) => {
-            acc[id] = weather;
-            return acc;
-          }, {} as { [key: string]: WeatherData });
-          setWeatherData(newWeatherData);
-        } catch (error) {
-          console.error('Lỗi khi tìm kiếm thành phố:', error);
-        }
-      })();
-    } else {
-      setLocations([]);
-      setWeatherData({});
-    }
-  }, [searchQuery]);
-
-  const addToFavorites = async (city: City) => {
+  const handleSearch = async () => {
+    if (!searchQuery) return;
     try {
-      const newFavorites = [...favorites, city];
-      setFavorites(newFavorites);
-      await AsyncStorage.setItem('favoriteCities', JSON.stringify(newFavorites));
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${searchQuery}`);
+      const data = await response.json();
+      if (data.results) {
+        const searchResults = await Promise.all(
+          data.results.slice(0, 5).map(async (result: any) => {
+            const weather = await getCurrentWeather({ latitude: result.latitude, longitude: result.longitude });
+            return {
+              city: `${result.name}, ${result.country}`,
+              latitude: result.latitude,
+              longitude: result.longitude,
+              weather: {
+                temp: weather.hourly.temperature_2m[0],
+                description: weatherCodeToText(weather.hourly.weather_code?.[0]),
+              },
+            };
+          })
+        );
+        setResults(searchResults);
+      }
     } catch (error) {
-      console.error('Error saving favorite:', error);
-    }
-  };
-
-  const viewCityWeather = async (city: City) => {
-    try {
-      const [weather, hourly, daily] = await Promise.all([
-        getCurrentWeather({ latitude: city.latitude, longitude: city.longitude }),
-        getHourlyForecast({ latitude: city.latitude, longitude: city.longitude }),
-        getDailyForecast({ latitude: city.latitude, longitude: city.longitude }),
-      ]);
-      router.push({
-        pathname: '/(tabs)/cityWeather',
-        params: {
-          city: JSON.stringify(city),
-          weather: JSON.stringify(weather),
-          hourly: JSON.stringify(hourly),
-          daily: JSON.stringify(daily),
-        },
-      });
-    } catch (error) {
-      console.error('Error fetching city weather:', error);
+      console.error('Error searching:', error);
     }
   };
 
   const weatherCodeToText = (code?: number): string => {
     if (!code) return 'Không xác định';
     const weatherCodes: { [key: number]: string } = {
-      0: 'Trời quang',
-      1: 'Gần như quang đãng',
-      2: 'Có mây rải rác',
-      3: 'Nhiều mây',
-      45: 'Sương mù',
-      48: 'Sương mù có băng giá',
-      51: 'Mưa phùn nhẹ',
-      53: 'Mưa phùn vừa',
-      55: 'Mưa phùn dày',
-      61: 'Mưa nhẹ',
-      63: 'Mưa vừa',
-      65: 'Mưa to',
-      80: 'Mưa rào nhẹ',
-      81: 'Mưa rào vừa',
-      82: 'Mưa rào mạnh',
-      95: 'Dông bão',
-      96: 'Dông bão kèm mưa đá nhẹ',
-      99: 'Dông bão kèm mưa đá lớn',
+      0: 'Trời quang', 1: 'Gần như quang đãng', 2: 'Có mây rải rác', 3: 'Nhiều mây',
+      45: 'Sương mù', 48: 'Sương mù có băng giá', 51: 'Mưa phùn nhẹ', 53: 'Mưa phùn vừa',
+      55: 'Mưa phùn dày', 61: 'Mưa nhẹ', 63: 'Mưa vừa', 65: 'Mưa to',
+      80: 'Mưa rào nhẹ', 81: 'Mưa rào vừa', 82: 'Mưa rào mạnh',
+      95: 'Dông bão', 96: 'Dông bão kèm mưa đá nhẹ', 99: 'Dông bão kèm mưa đá lớn',
     };
     return weatherCodes[code] || 'Không xác định';
   };
 
-  const getWeatherIconComponent = (code: number | undefined, isDay: number | undefined) => {
-    return PlaceholderIcon;
+  const convertTemperature = (temp: number, unit: 'C' | 'F') => {
+    return unit === 'F' ? (temp * 9) / 5 + 32 : temp;
   };
 
-  const convertTemperature = (temp: number) => {
-    return settings.tempUnit === 'F' ? (temp * 9) / 5 + 32 : temp;
+  const handleAddFavorite = async (result: { city: string; latitude: number; longitude: number; weather?: { temp: number; description: string } }) => {
+    try {
+      const savedFavorites = await AsyncStorage.getItem('favorites');
+      const favorites = savedFavorites ? JSON.parse(savedFavorites) : [];
+      if (!favorites.some((fav: any) => fav.city === result.city)) {
+        favorites.push({ city: result.city, latitude: result.latitude, longitude: result.longitude });
+        await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
+        router.push('/(tabs)/location');
+      }
+    } catch (error) {
+      console.error('Error adding favorite:', error);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient style={styles.gradient} colors={['#1F2A44', '#2A3550']} locations={[0, 0.8]}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
         <TextInput
           style={styles.searchInput}
           placeholder="Tìm kiếm thành phố..."
+          placeholderTextColor="#ccc"
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholderTextColor="#888"
+          onSubmitEditing={handleSearch}
         />
-        <CustomFlatList
-          data={locations}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => {
-            const weather = weatherData[item.id.toString()];
-            const WeatherIcon = getWeatherIconComponent(weather?.hourly.weather_code?.[0], weather?.hourly.is_day?.[0]);
-            const isFavorite = favorites.some((fav) => fav.id === item.id);
-            return (
-              <TouchableOpacity style={styles.locationItem} onPress={() => viewCityWeather(item)}>
-                <WeatherIcon style={styles.itemIcon} />
-                <View style={styles.itemContent}>
-                  <Text style={styles.itemName}>{item.name}, {item.country}</Text>
-                  <Text style={styles.itemDetails}>
-                    {weather ? convertTemperature(weather.hourly.temperature_2m[0]).toFixed(1) : '--'}°{settings.tempUnit},{' '}
-                    {weatherCodeToText(weather?.hourly.weather_code?.[0])}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.favoriteButton, isFavorite ? styles.favoriteButtonActive : null]}
-                  onPress={() => addToFavorites(item)}
-                  disabled={isFavorite}
-                >
-                  <Text style={styles.favoriteButtonText}>{isFavorite ? 'Đã thêm' : 'Thêm'}</Text>
-                </TouchableOpacity>
-              </TouchableOpacity>
-            );
-          }}
-          ListEmptyComponent={<Text style={styles.emptyText}>Không tìm thấy kết quả</Text>}
-          contentContainerStyle={styles.listContent}
-        />
-      </LinearGradient>
+      </View>
+      <FlatList
+        data={results}
+        keyExtractor={(item, index) => index.toString()}
+        renderItem={({ item }) => (
+          <View style={styles.resultItem}>
+            <View style={styles.resultInfo}>
+              <Text style={styles.cityName}>{item.city}</Text>
+              <Text style={styles.weatherInfo}>
+                {convertTemperature(item.weather?.temp || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit}, {item.weather?.description}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.addButton} onPress={() => handleAddFavorite(item)}>
+              <Text style={styles.addButtonText}>Thêm</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        ListEmptyComponent={<Text style={styles.emptyText}>Không có kết quả</Text>}
+      />
     </SafeAreaView>
   );
 };
@@ -177,72 +116,59 @@ const SearchTab = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#1F2A44',
+    paddingTop: 20,
   },
-  gradient: {
-    flex: 1,
-    padding: 10,
-  },
-  searchInput: {
-    height: 50,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    backgroundColor: '#fff',
-    fontSize: 16,
-    marginBottom: 15,
-    elevation: 2,
-  },
-  locationItem: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 20,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
+    padding: 10,
+    marginLeft: 10,
+    color: '#fff',
+  },
+  resultItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    padding: 15,
+    marginHorizontal: 20,
     marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
-  itemIcon: {
-    marginRight: 10,
-  },
-  itemContent: {
+  resultInfo: {
     flex: 1,
   },
-  itemName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  itemDetails: {
+  cityName: {
     fontSize: 16,
-    color: '#666',
+    fontWeight: 'bold',
+    color: '#fff',
   },
-  favoriteButton: {
+  weatherInfo: {
+    fontSize: 14,
+    color: '#fff',
+  },
+  addButton: {
     backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 15,
+    borderRadius: 5,
   },
-  favoriteButtonActive: {
-    backgroundColor: '#ccc',
-  },
-  favoriteButtonText: {
+  addButtonText: {
     color: '#fff',
     fontSize: 14,
   },
   emptyText: {
-    textAlign: 'center',
-    marginTop: 20,
     color: '#fff',
-    fontSize: 16,
-  },
-  listContent: {
-    paddingBottom: 20,
+    textAlign: 'center',
+    marginTop: 50,
   },
 });
 
-export default SearchTab;
+export default SearchPage;

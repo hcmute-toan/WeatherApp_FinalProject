@@ -24,24 +24,11 @@ const SettingPage = () => {
           setWindUnit(settings.windUnit || 'kmh');
           setUvNotifications(settings.uvNotifications !== undefined ? settings.uvNotifications : true);
         }
-
-        const loc = await getCurrentLocation();
-        const weather = await getCurrentWeather({ latitude: loc.latitude, longitude: loc.longitude });
-        const cityResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${loc.latitude}&longitude=${loc.longitude}`);
-        const cityData = await cityResponse.json();
-        const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
-
-        await scheduleNotifications({
-          Location: { Name: cityName },
-          Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
-          WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
-          UVIndex: weather.hourly.uv_index?.[0] || 0,
-        });
       } catch (error) {
         console.error('Error loading settings:', error);
       }
     })();
-  }, [tempUnit]);
+  }, []);
 
   const saveSettings = async () => {
     try {
@@ -54,12 +41,14 @@ const SettingPage = () => {
       const cityData = await cityResponse.json();
       const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
 
-      await scheduleNotifications({
-        Location: { Name: cityName },
-        Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
-        WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
-        UVIndex: weather.hourly.uv_index?.[0] || 0,
-      });
+      if (uvNotifications) {
+        await scheduleNotifications({
+          Location: { Name: cityName },
+          Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
+          WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
+          UVIndex: weather.hourly.uv_index?.[0] || 0,
+        });
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
     }
@@ -101,24 +90,11 @@ const SettingPage = () => {
   const weatherCodeToText = (code?: number): string => {
     if (!code) return 'Không xác định';
     const weatherCodes: { [key: number]: string } = {
-      0: 'Trời quang',
-      1: 'Gần như quang đãng',
-      2: 'Có mây rải rác',
-      3: 'Nhiều mây',
-      45: 'Sương mù',
-      48: 'Sương mù có băng giá',
-      51: 'Mưa phùn nhẹ',
-      53: 'Mưa phùn vừa',
-      55: 'Mưa phùn dày',
-      61: 'Mưa nhẹ',
-      63: 'Mưa vừa',
-      65: 'Mưa to',
-      80: 'Mưa rào nhẹ',
-      81: 'Mưa rào vừa',
-      82: 'Mưa rào mạnh',
-      95: 'Dông bão',
-      96: 'Dông bão kèm mưa đá nhẹ',
-      99: 'Dông bão kèm mưa đá lớn',
+      0: 'Trời quang', 1: 'Gần như quang đãng', 2: 'Có mây rải rác', 3: 'Nhiều mây',
+      45: 'Sương mù', 48: 'Sương mù có băng giá', 51: 'Mưa phùn nhẹ', 53: 'Mưa phùn vừa',
+      55: 'Mưa phùn dày', 61: 'Mưa nhẹ', 63: 'Mưa vừa', 65: 'Mưa to',
+      80: 'Mưa rào nhẹ', 81: 'Mưa rào vừa', 82: 'Mưa rào mạnh',
+      95: 'Dông bão', 96: 'Dông bão kèm mưa đá nhẹ', 99: 'Dông bão kèm mưa đá lớn',
     };
     return weatherCodes[code] || 'Không xác định';
   };
@@ -193,6 +169,7 @@ const SettingPage = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingTop: 20,
   },
   gradient: {
     flex: 1,

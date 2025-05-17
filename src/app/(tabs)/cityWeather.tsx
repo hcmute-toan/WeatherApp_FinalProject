@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SafeAreaView, Text, StyleSheet, View, ImageBackground, ScrollView, TouchableOpacity } from 'react-native';
+import { SafeAreaView, Text, StyleSheet, View, ImageBackground, TouchableOpacity } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { APP_COLOR } from '../../utils/constant';
 import { City, WeatherData, HourlyForecast, DailyForecast } from '../../types/weather';
@@ -84,6 +84,48 @@ const CityWeather = () => {
 
   const WeatherIcon = getWeatherIconComponent(weatherData.hourly.weather_code?.[0], weatherData.hourly.is_day?.[0]);
 
+  const renderHeader = () => (
+    <>
+      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <Text style={styles.backButtonText}>Quay lại</Text>
+      </TouchableOpacity>
+      <View style={styles.weatherCard}>
+        <Text style={styles.city}>{cityData.name}, {cityData.country}</Text>
+        <WeatherIcon style={styles.weatherIcon} />
+        <Text style={styles.temperature}>
+          {convertTemperature(weatherData.hourly.temperature_2m[0], settings.tempUnit).toFixed(1)}°{settings.tempUnit}
+        </Text>
+        <Text style={styles.condition}>{weatherCodeToText(weatherData.hourly.weather_code?.[0])}</Text>
+        <Text style={styles.location}>
+          Vị trí: {cityData.latitude.toFixed(4)}, {cityData.longitude.toFixed(4)}
+        </Text>
+        <Text style={styles.details}>Độ ẩm: {weatherData.hourly.relative_humidity_2m?.[0]}%</Text>
+        <Text style={styles.details}>
+          Gió: {convertWindSpeed(weatherData.hourly.wind_speed_10m?.[0] ?? 0, settings.windUnit).toFixed(1)} {settings.windUnit}
+        </Text>
+        <Text style={styles.details}>Lượng mưa: {weatherData.hourly.precipitation?.[0]} mm</Text>
+        <Text style={styles.details}>Chỉ số UV: {weatherData.hourly.uv_index?.[0] || 'N/A'}</Text>
+      </View>
+      <View style={styles.forecastSection}>
+        <Text style={styles.sectionTitle}>Dự báo 12 giờ</Text>
+        <CustomFlatList
+          data={hourlyForecast}
+          horizontal
+          keyExtractor={(item) => item.time}
+          renderItem={({ item }) => (
+            <HourlyForecastItem
+              forecast={{ ...item, temperature: convertTemperature(item.temperature || 0, settings.tempUnit), unit: settings.tempUnit }}
+            />
+          )}
+          style={styles.horizontalList}
+        />
+      </View>
+      <View style={styles.forecastSection}>
+        <Text style={styles.sectionTitle}>Dự báo 5 ngày</Text>
+      </View>
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ImageBackground
@@ -91,58 +133,22 @@ const CityWeather = () => {
         style={styles.background}
         defaultSource={require('../../assets/background-day.png')}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>Quay lại</Text>
-          </TouchableOpacity>
-          <View style={styles.weatherCard}>
-            <Text style={styles.city}>{cityData.name}, {cityData.country}</Text>
-            <WeatherIcon style={styles.weatherIcon} />
-            <Text style={styles.temperature}>
-              {convertTemperature(weatherData.hourly.temperature_2m[0], settings.tempUnit).toFixed(1)}°{settings.tempUnit}
-            </Text>
-            <Text style={styles.condition}>{weatherCodeToText(weatherData.hourly.weather_code?.[0])}</Text>
-            <Text style={styles.location}>
-              Vị trí: {cityData.latitude.toFixed(4)}, {cityData.longitude.toFixed(4)}
-            </Text>
-            <Text style={styles.details}>Độ ẩm: {weatherData.hourly.relative_humidity_2m?.[0]}%</Text>
-            <Text style={styles.details}>
-              Gió: {convertWindSpeed(weatherData.hourly.wind_speed_10m?.[0] ?? 0, settings.windUnit).toFixed(1)} {settings.windUnit}
-            </Text>
-            <Text style={styles.details}>Lượng mưa: {weatherData.hourly.precipitation?.[0]} mm</Text>
-            <Text style={styles.details}>Chỉ số UV: {weatherData.hourly.uv_index?.[0] || 'N/A'}</Text>
-          </View>
-          <View style={styles.forecastSection}>
-            <Text style={styles.sectionTitle}>Dự báo 12 giờ</Text>
-            <CustomFlatList
-              data={hourlyForecast}
-              horizontal
-              keyExtractor={(item) => item.time}
-              renderItem={({ item }) => (
-                <HourlyForecastItem
-                  forecast={{ ...item, temperature: convertTemperature(item.temperature || 0, settings.tempUnit), unit: settings.tempUnit }}
-                />
-              )}
-            />
-          </View>
-          <View style={styles.forecastSection}>
-            <Text style={styles.sectionTitle}>Dự báo 5 ngày</Text>
-            <CustomFlatList
-              data={dailyForecast}
-              keyExtractor={(item) => item.date}
-              renderItem={({ item }) => (
-                <View style={styles.dailyItem}>
-                  <Text style={styles.dailyDate}>{new Date(item.date).toLocaleDateString('vi-VN')}</Text>
-                  <Text style={styles.dailyTemp}>
-                    {convertTemperature(item.temperature_max || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit} /{' '}
-                    {convertTemperature(item.temperature_min || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit}
-                  </Text>
-                  <Text style={styles.dailyCondition}>{weatherCodeToText(item.weather_code)}</Text>
-                </View>
-              )}
-            />
-          </View>
-        </ScrollView>
+        <CustomFlatList
+          data={dailyForecast}
+          keyExtractor={(item) => item.date}
+          ListHeaderComponent={renderHeader()}
+          renderItem={({ item }) => (
+            <View style={styles.dailyItem}>
+              <Text style={styles.dailyDate}>{new Date(item.date).toLocaleDateString('vi-VN')}</Text>
+              <Text style={styles.dailyTemp}>
+                {convertTemperature(item.temperature_max || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit} /{' '}
+                {convertTemperature(item.temperature_min || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit}
+              </Text>
+              <Text style={styles.dailyCondition}>{weatherCodeToText(item.weather_code)}</Text>
+            </View>
+          )}
+          contentContainerStyle={styles.listContent}
+        />
       </ImageBackground>
     </SafeAreaView>
   );
@@ -156,7 +162,7 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
   },
-  scrollContent: {
+  listContent: {
     padding: 20,
   },
   backButton: {
@@ -238,6 +244,9 @@ const styles = StyleSheet.create({
   dailyCondition: {
     fontSize: 14,
     color: '#666',
+  },
+  horizontalList: {
+    marginBottom: 20,
   },
 });
 
