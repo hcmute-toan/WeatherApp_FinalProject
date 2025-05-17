@@ -1,105 +1,95 @@
-import {
-  SafeAreaView,
-  Text,
-  StyleSheet,
-  View,
-  Image,
-  FlatList,
-  Dimensions,
-} from "react-native";
-import { router } from "expo-router";
-import { APP_COLOR } from "@/utils/constant";
-import CustomFlatList from "@/components/CustomFlatList/CustomFlatList";
+import { useEffect, useState } from 'react';
+import { SafeAreaView, Text, StyleSheet, View, ImageBackground } from 'react-native';
+import { APP_COLOR } from '../../utils/constant';
+import { getCurrentWeather, getCurrentLocation } from '../../services/weather';
+import { WeatherData } from '../../types/weather';
 
-const { width: sWidth } = Dimensions.get("window");
+const PlaceholderIcon = ({ style }: { style?: object }) => (
+  <View style={[{ width: 100, height: 100, backgroundColor: '#ccc', borderRadius: 10, justifyContent: 'center', alignItems: 'center' }, style]}>
+    <Text style={{ color: '#fff' }}>Icon</Text>
+  </View>
+);
 
 const HomeTab = () => {
-  // Mock data for hourly forecast
-  const hourlyForecast = [
-    { time: "Now", temp: "66°", icon: "sunny" },
-    { time: "10AM", temp: "68°", icon: "sunny" },
-    { time: "11AM", temp: "74°", icon: "sunny" },
-    { time: "12PM", temp: "78°", icon: "sunny" },
-    { time: "1PM", temp: "81°", icon: "sunny" },
-    { time: "2PM", temp: "82°", icon: "sunny" },
-  ];
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // Mock data for 10-day forecast
-  const dailyForecast = [
-    { day: "Today", low: "55°", high: "85°", condition: "Sunny" },
-    { day: "Thu", low: "55°", high: "86°", condition: "Sunny" },
-    { day: "Fri", low: "56°", high: "81°", condition: "Sunny" },
-    { day: "Sat", low: "52°", high: "82°", condition: "Sunny" },
-  ];
+  useEffect(() => {
+    (async () => {
+      try {
+        const loc = await getCurrentLocation();
+        setLocation(loc);
+        const data = await getCurrentWeather({ latitude: loc.latitude, longitude: loc.longitude });
+        setWeather(data);
+      } catch (error) {
+        console.error('Lỗi khi lấy dữ liệu thời tiết:', error);
+        const data = await getCurrentWeather();
+        setWeather(data);
+        setLocation({ latitude: 16.1667, longitude: 107.8333 });
+      }
+    })();
+  }, []);
 
-  const HeaderComponent = (
-    <View style={styles.headerContainer}>
-      <Text style={styles.location}>Cupertino</Text>
-      <Text style={styles.temperature}>66°</Text>
-      <Text style={styles.condition}>Mostly Sunny</Text>
-      <Text style={styles.highLow}>H:85° L:55°</Text>
-      <Text style={styles.description}>
-        Sunny conditions will continue all day. Wind gusts are up to 7 mph.
-      </Text>
-    </View>
-  );
+  const weatherCodeToText = (code?: number): string => {
+    if (!code) return 'Không xác định';
+    const weatherCodes: { [key: number]: string } = {
+      0: 'Trời quang',
+      1: 'Gần như quang đãng',
+      2: 'Có mây rải rác',
+      3: 'Nhiều mây',
+      45: 'Sương mù',
+      48: 'Sương mù có băng giá',
+      51: 'Mưa phùn nhẹ',
+      53: 'Mưa phùn vừa',
+      55: 'Mưa phùn dày',
+      61: 'Mưa nhẹ',
+      63: 'Mưa vừa',
+      65: 'Mưa to',
+      80: 'Mưa rào nhẹ',
+      81: 'Mưa rào vừa',
+      82: 'Mưa rào mạnh',
+      95: 'Dông bão',
+      96: 'Dông bão kèm mưa đá nhẹ',
+      99: 'Dông bão kèm mưa đá lớn',
+    };
+    return weatherCodes[code] || 'Không xác định';
+  };
 
-  const StickyElementComponent = (
-    <View style={styles.stickyContainer}>
-      <FlatList
-        horizontal
-        data={hourlyForecast}
-        keyExtractor={(item) => item.time}
-        renderItem={({ item }) => (
-          <View style={styles.hourlyItem}>
-            <Text style={styles.hourlyTime}>{item.time}</Text>
-            <Image
-              source={{ uri: "https://via.placeholder.com/30" }} // Replace with actual weather icon URL
-              style={styles.hourlyIcon}
-            />
-            <Text style={styles.hourlyTemp}>{item.temp}</Text>
-          </View>
-        )}
-        showsHorizontalScrollIndicator={false}
-      />
-    </View>
-  );
+  const getWeatherIconComponent = (code: number | undefined, isDay: number | undefined) => {
+    return PlaceholderIcon;
+  };
 
-  const TopListElementComponent = <View style={styles.topListPlaceholder} />;
+  if (!weather || !location) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: '#fff', textAlign: 'center', marginTop: 50 }}>
+          Đang tải dữ liệu...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  const WeatherIcon = getWeatherIconComponent(weather.hourly.weather_code?.[0], weather.hourly.is_day?.[0]);
 
   return (
     <SafeAreaView style={styles.container}>
-      <CustomFlatList
-        data={dailyForecast}
-        HeaderComponent={HeaderComponent}
-        StickyElementComponent={StickyElementComponent}
-        TopListElementComponent={TopListElementComponent}
-        renderItem={({ item }) => (
-          <View style={styles.dailyItem}>
-            <Text style={styles.dailyDay}>{item.day}</Text>
-            <Image
-              source={{ uri: "https://via.placeholder.com/30" }} // Replace with actual weather icon URL
-              style={styles.dailyIcon}
-            />
-            <Text style={styles.dailyLow}>{item.low}</Text>
-            <View style={styles.tempBar}>
-              <View
-                style={[
-                  styles.tempBarFill,
-                  {
-                    width:
-                      ((parseInt(item.high) - parseInt(item.low)) / 40) * 100,
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.dailyHigh}>{item.high}</Text>
-          </View>
-        )}
-        keyExtractor={(item) => item.day}
-        ListHeaderComponentStyle={styles.listHeader}
-        contentContainerStyle={styles.listContent}
-      />
+      <ImageBackground
+        source={weather.hourly.is_day?.[0] ? require('../../assets/background-day.png') : require('../../assets/background-night.png')}
+        style={styles.background}
+        defaultSource={require('../../assets/background-day.png')}
+      >
+        <View style={styles.weatherCard}>
+          <WeatherIcon style={styles.weatherIcon} />
+          <Text style={styles.temperature}>{weather.hourly.temperature_2m[0]}°C</Text>
+          <Text style={styles.condition}>{weatherCodeToText(weather.hourly.weather_code?.[0])}</Text>
+          <Text style={styles.location}>
+            Vị trí: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+          </Text>
+          <Text style={styles.details}>Độ ẩm: {weather.hourly.relative_humidity_2m?.[0]}%</Text>
+          <Text style={styles.details}>Gió: {weather.hourly.wind_speed_10m?.[0]} km/h</Text>
+          <Text style={styles.details}>Lượng mưa: {weather.hourly.precipitation?.[0]} mm</Text>
+        </View>
+      </ImageBackground>
     </SafeAreaView>
   );
 };
@@ -107,114 +97,45 @@ const HomeTab = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#87CEEB", // Sky blue background
+    backgroundColor: '#1F2A44',
   },
-  headerContainer: {
-    alignItems: "center",
+  background: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weatherCard: {
+    backgroundColor: '#2A3550',
+    borderRadius: 15,
     padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  location: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
+  weatherIcon: {
+    marginBottom: 10,
   },
   temperature: {
-    fontSize: 80,
-    fontWeight: "300",
-    color: "#fff",
-    marginVertical: 10,
+    fontSize: 40,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   condition: {
     fontSize: 20,
-    color: "#fff",
+    color: '#fff',
   },
-  highLow: {
+  location: {
+    fontSize: 18,
+    color: '#fff',
+    marginVertical: 10,
+  },
+  details: {
     fontSize: 16,
-    color: "#fff",
-    marginVertical: 5,
-  },
-  description: {
-    fontSize: 14,
-    color: "#fff",
-    textAlign: "center",
-    marginTop: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    padding: 10,
-    borderRadius: 10,
-  },
-  stickyContainer: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    paddingVertical: 10,
-    borderRadius: 10,
-    marginHorizontal: 10,
-  },
-  hourlyItem: {
-    alignItems: "center",
-    paddingHorizontal: 15,
-  },
-  hourlyTime: {
-    fontSize: 14,
-    color: "#333",
-  },
-  hourlyIcon: {
-    width: 30,
-    height: 30,
-    marginVertical: 5,
-  },
-  hourlyTemp: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
-  },
-  topListPlaceholder: {
-    height: 10, // Adjust as needed for spacing
-  },
-  listHeader: {
-    marginBottom: 20,
-  },
-  listContent: {
-    paddingHorizontal: 10,
-    paddingBottom: 20,
-  },
-  dailyItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
-  },
-  dailyDay: {
-    flex: 1,
-    fontSize: 16,
-    color: "#333",
-  },
-  dailyIcon: {
-    width: 30,
-    height: 30,
-    marginHorizontal: 10,
-  },
-  dailyLow: {
-    fontSize: 16,
-    color: "#666",
-    marginRight: 10,
-  },
-  tempBar: {
-    width: 100,
-    height: 5,
-    backgroundColor: "#ddd",
-    borderRadius: 5,
-    overflow: "hidden",
-    marginHorizontal: 10,
-  },
-  tempBarFill: {
-    height: "100%",
-    backgroundColor: "#FFA500", // Orange for temperature range
-  },
-  dailyHigh: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
+    color: '#fff',
+    marginVertical: 2,
   },
 });
 

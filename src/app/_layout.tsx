@@ -1,27 +1,10 @@
-import { Slot, useRouter } from "expo-router";
-import { useEffect } from "react";
-import * as SplashScreen from "expo-splash-screen";
+import { Stack } from 'expo-router';
 
-SplashScreen.preventAutoHideAsync();
-
-const RootLayout = () => {
-  const router = useRouter();
-
-  useEffect(() => {
-    async function prepare() {
-      try {
-        await SplashScreen.hideAsync();
-        router.replace("/(auth)/popup.weather"); // Navigate to popup on app start
-      } catch (e) {
-        console.warn("Error navigating to popup:", e);
-        router.replace("/(tabs)"); // Fallback to tabs if popup fails
-      }
-    }
-
-    prepare();
-  }, [router]);
-
-  return <Slot />; // Render Slot to initialize the router
-};
-
-export default RootLayout;
+export default function RootLayout() {
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(auth)/intro" />
+      <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+    </Stack>
+  );
+}
