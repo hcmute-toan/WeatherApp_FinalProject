@@ -3,8 +3,11 @@ import { SafeAreaView, Text, StyleSheet, TextInput, FlatList, View, TouchableOpa
 import { APP_COLOR } from '../../utils/constant';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { searchCity, getCurrentWeather } from '../../services/weather';
-import { City, WeatherData } from '../../types/weather';
+import { searchCity, getCurrentWeather, getHourlyForecast, getDailyForecast } from '../../services/weather';
+import { City, WeatherData, HourlyForecast, DailyForecast } from '../../types/weather';
+import { router } from 'expo-router';
+import CustomFlatList from '../../components/CustomFlatList/CustomFlatList';
+import HourlyForecastItem from '../../components/HourlyForecastItem';
 
 const PlaceholderIcon = ({ style }: { style?: object }) => (
   <View style={[{ width: 50, height: 50, backgroundColor: '#ccc', borderRadius: 25, justifyContent: 'center', alignItems: 'center' }, style]}>
@@ -17,6 +20,7 @@ const SearchTab = () => {
   const [locations, setLocations] = useState<City[]>([]);
   const [weatherData, setWeatherData] = useState<{ [key: string]: WeatherData }>({});
   const [favorites, setFavorites] = useState<City[]>([]);
+  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F' }>({ tempUnit: 'C' });
 
   useEffect(() => {
     (async () => {
@@ -25,8 +29,12 @@ const SearchTab = () => {
         if (savedFavorites) {
           setFavorites(JSON.parse(savedFavorites));
         }
+        const savedSettings = await AsyncStorage.getItem('settings');
+        if (savedSettings) {
+          setSettings(JSON.parse(savedSettings));
+        }
       } catch (error) {
-        console.error('Error loading favorites:', error);
+        console.error('Error loading favorites or settings:', error);
       }
     })();
   }, []);
@@ -67,6 +75,27 @@ const SearchTab = () => {
     }
   };
 
+  const viewCityWeather = async (city: City) => {
+    try {
+      const [weather, hourly, daily] = await Promise.all([
+        getCurrentWeather({ latitude: city.latitude, longitude: city.longitude }),
+        getHourlyForecast({ latitude: city.latitude, longitude: city.longitude }),
+        getDailyForecast({ latitude: city.latitude, longitude: city.longitude }),
+      ]);
+      router.push({
+        pathname: '/(tabs)/cityWeather',
+        params: {
+          city: JSON.stringify(city),
+          weather: JSON.stringify(weather),
+          hourly: JSON.stringify(hourly),
+          daily: JSON.stringify(daily),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching city weather:', error);
+    }
+  };
+
   const weatherCodeToText = (code?: number): string => {
     if (!code) return 'Không xác định';
     const weatherCodes: { [key: number]: string } = {
@@ -96,6 +125,10 @@ const SearchTab = () => {
     return PlaceholderIcon;
   };
 
+  const convertTemperature = (temp: number) => {
+    return settings.tempUnit === 'F' ? (temp * 9) / 5 + 32 : temp;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient style={styles.gradient} colors={['#1F2A44', '#2A3550']} locations={[0, 0.8]}>
@@ -106,7 +139,7 @@ const SearchTab = () => {
           onChangeText={setSearchQuery}
           placeholderTextColor="#888"
         />
-        <FlatList
+        <CustomFlatList
           data={locations}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => {
@@ -114,12 +147,13 @@ const SearchTab = () => {
             const WeatherIcon = getWeatherIconComponent(weather?.hourly.weather_code?.[0], weather?.hourly.is_day?.[0]);
             const isFavorite = favorites.some((fav) => fav.id === item.id);
             return (
-              <View style={styles.locationItem}>
+              <TouchableOpacity style={styles.locationItem} onPress={() => viewCityWeather(item)}>
                 <WeatherIcon style={styles.itemIcon} />
                 <View style={styles.itemContent}>
                   <Text style={styles.itemName}>{item.name}, {item.country}</Text>
                   <Text style={styles.itemDetails}>
-                    {weather?.hourly.temperature_2m[0] || '--'}°C, {weatherCodeToText(weather?.hourly.weather_code?.[0])}
+                    {weather ? convertTemperature(weather.hourly.temperature_2m[0]).toFixed(1) : '--'}°{settings.tempUnit},{' '}
+                    {weatherCodeToText(weather?.hourly.weather_code?.[0])}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -129,7 +163,7 @@ const SearchTab = () => {
                 >
                   <Text style={styles.favoriteButtonText}>{isFavorite ? 'Đã thêm' : 'Thêm'}</Text>
                 </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             );
           }}
           ListEmptyComponent={<Text style={styles.emptyText}>Không tìm thấy kết quả</Text>}

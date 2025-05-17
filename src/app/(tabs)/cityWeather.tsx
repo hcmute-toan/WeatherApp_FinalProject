@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { SafeAreaView, Text, StyleSheet, View, ImageBackground, ScrollView } from 'react-native';
+import { SafeAreaView, Text, StyleSheet, View, ImageBackground, ScrollView, TouchableOpacity } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { APP_COLOR } from '../../utils/constant';
-import { getCurrentWeather, getCurrentLocation, getHourlyForecast, getDailyForecast } from '../../services/weather';
-import { WeatherData, HourlyForecast, DailyForecast } from '../../types/weather';
+import { City, WeatherData, HourlyForecast, DailyForecast } from '../../types/weather';
 import CustomFlatList from '../../components/CustomFlatList/CustomFlatList';
 import HourlyForecastItem from '../../components/HourlyForecastItem';
-import { scheduleNotifications } from '../../services/notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PlaceholderIcon = ({ style }: { style?: object }) => (
@@ -14,48 +13,24 @@ const PlaceholderIcon = ({ style }: { style?: object }) => (
   </View>
 );
 
-const HomeTab = () => {
-  const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [location, setLocation] = useState<{ latitude: number; longitude: number; city?: string } | null>(null);
-  const [hourlyForecast, setHourlyForecast] = useState<HourlyForecast[]>([]);
-  const [dailyForecast, setDailyForecast] = useState<DailyForecast[]>([]);
+const CityWeather = () => {
+  const { city, weather, hourly, daily } = useLocalSearchParams();
+  const [cityData, setCityData] = useState<City | null>(city ? JSON.parse(city as string) : null);
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(weather ? JSON.parse(weather as string) : null);
+  const [hourlyForecast, setHourlyForecast] = useState<HourlyForecast[]>(hourly ? JSON.parse(hourly as string) : []);
+  const [dailyForecast, setDailyForecast] = useState<DailyForecast[]>(daily ? JSON.parse(daily as string) : []);
   const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
+  const router = useRouter();
 
   useEffect(() => {
     (async () => {
       try {
-        const loc = await getCurrentLocation();
-        const cityResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${loc.latitude}&longitude=${loc.longitude}`);
-        const cityData = await cityResponse.json();
-        const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
-        setLocation({ ...loc, city: cityName });
-
-        const [weatherData, hourlyData, dailyData] = await Promise.all([
-          getCurrentWeather({ latitude: loc.latitude, longitude: loc.longitude }),
-          getHourlyForecast({ latitude: loc.latitude, longitude: loc.longitude }),
-          getDailyForecast({ latitude: loc.latitude, longitude: loc.longitude }),
-        ]);
-        setWeather(weatherData);
-        setHourlyForecast(hourlyData);
-        setDailyForecast(dailyData);
-
         const savedSettings = await AsyncStorage.getItem('settings');
         if (savedSettings) {
           setSettings(JSON.parse(savedSettings));
         }
-
-        await scheduleNotifications({
-          Location: { Name: cityName },
-          Temperature: { Metric: { Value: weatherData.hourly.temperature_2m[0], Unit: settings.tempUnit } },
-          WeatherText: weatherCodeToText(weatherData.hourly.weather_code?.[0]),
-        });
       } catch (error) {
-        console.error('Lỗi khi lấy dữ liệu thời tiết:', error);
-        const data = await getCurrentWeather();
-        setWeather(data);
-        setLocation({ latitude: 16.1667, longitude: 107.8333, city: 'Huế' });
-        setHourlyForecast([]);
-        setDailyForecast([]);
+        console.error('Error loading settings:', error);
       }
     })();
   }, []);
@@ -97,7 +72,7 @@ const HomeTab = () => {
     return unit === 'mph' ? speed / 1.609 : speed;
   };
 
-  if (!weather || !location) {
+  if (!weatherData || !cityData) {
     return (
       <SafeAreaView style={styles.container}>
         <Text style={{ color: '#fff', textAlign: 'center', marginTop: 50 }}>
@@ -107,32 +82,35 @@ const HomeTab = () => {
     );
   }
 
-  const WeatherIcon = getWeatherIconComponent(weather.hourly.weather_code?.[0], weather.hourly.is_day?.[0]);
+  const WeatherIcon = getWeatherIconComponent(weatherData.hourly.weather_code?.[0], weatherData.hourly.is_day?.[0]);
 
   return (
     <SafeAreaView style={styles.container}>
       <ImageBackground
-        source={weather.hourly.is_day?.[0] ? require('../../assets/background-day.png') : require('../../assets/background-night.png')}
+        source={weatherData.hourly.is_day?.[0] ? require('../../assets/background-day.png') : require('../../assets/background-night.png')}
         style={styles.background}
         defaultSource={require('../../assets/background-day.png')}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>Quay lại</Text>
+          </TouchableOpacity>
           <View style={styles.weatherCard}>
-            <Text style={styles.city}>{location.city}</Text>
+            <Text style={styles.city}>{cityData.name}, {cityData.country}</Text>
             <WeatherIcon style={styles.weatherIcon} />
             <Text style={styles.temperature}>
-              {convertTemperature(weather.hourly.temperature_2m[0], settings.tempUnit).toFixed(1)}°{settings.tempUnit}
+              {convertTemperature(weatherData.hourly.temperature_2m[0], settings.tempUnit).toFixed(1)}°{settings.tempUnit}
             </Text>
-            <Text style={styles.condition}>{weatherCodeToText(weather.hourly.weather_code?.[0])}</Text>
+            <Text style={styles.condition}>{weatherCodeToText(weatherData.hourly.weather_code?.[0])}</Text>
             <Text style={styles.location}>
-              Vị trí: {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+              Vị trí: {cityData.latitude.toFixed(4)}, {cityData.longitude.toFixed(4)}
             </Text>
-            <Text style={styles.details}>Độ ẩm: {weather.hourly.relative_humidity_2m?.[0]}%</Text>
+            <Text style={styles.details}>Độ ẩm: {weatherData.hourly.relative_humidity_2m?.[0]}%</Text>
             <Text style={styles.details}>
-              Gió: {convertWindSpeed(weather.hourly.wind_speed_10m?.[0] ?? 0, settings.windUnit).toFixed(1)} {settings.windUnit}
+              Gió: {convertWindSpeed(weatherData.hourly.wind_speed_10m?.[0] ?? 0, settings.windUnit).toFixed(1)} {settings.windUnit}
             </Text>
-            <Text style={styles.details}>Lượng mưa: {weather.hourly.precipitation?.[0]} mm</Text>
-            <Text style={styles.details}>Chỉ số UV: {weather.hourly.uv_index?.[0] || 'N/A'}</Text>
+            <Text style={styles.details}>Lượng mưa: {weatherData.hourly.precipitation?.[0]} mm</Text>
+            <Text style={styles.details}>Chỉ số UV: {weatherData.hourly.uv_index?.[0] || 'N/A'}</Text>
           </View>
           <View style={styles.forecastSection}>
             <Text style={styles.sectionTitle}>Dự báo 12 giờ</Text>
@@ -180,6 +158,18 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+  },
+  backButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginBottom: 20,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
   },
   weatherCard: {
     backgroundColor: '#2A3550',
@@ -251,4 +241,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HomeTab;
+export default CityWeather;

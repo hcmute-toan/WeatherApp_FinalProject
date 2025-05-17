@@ -16,6 +16,7 @@ export interface WeatherData {
     wind_direction_10m?: number[];
     wind_gusts_10m?: number[];
     is_day?: number[];
+    uv_index?: number[];
   };
   hourly_units: {
     time: string;
@@ -27,6 +28,7 @@ export interface WeatherData {
     wind_direction_10m?: string;
     wind_gusts_10m?: string;
     is_day?: string;
+    uv_index?: string;
   };
   daily: {
     time: string[];
@@ -36,6 +38,7 @@ export interface WeatherData {
     weather_code?: number[];
     wind_speed_10m_max?: number[];
     wind_gusts_10m_max?: number[];
+    uv_index_max?: number[];
   };
   daily_units: {
     time: string;
@@ -45,6 +48,7 @@ export interface WeatherData {
     weather_code?: string;
     wind_speed_10m_max?: string;
     wind_gusts_10m_max?: string;
+    uv_index_max?: string;
   };
 }
 
@@ -58,6 +62,7 @@ export interface HourlyForecast {
   wind_direction_10m?: number;
   wind_gusts_10m?: number;
   is_day?: number;
+  uv_index?: number;
   unit: string;
 }
 
@@ -69,6 +74,7 @@ export interface DailyForecast {
   weather_code?: number;
   wind_speed_10m_max?: number;
   wind_gusts_10m_max?: number;
+  uv_index_max?: number;
   unit: string;
 }
 

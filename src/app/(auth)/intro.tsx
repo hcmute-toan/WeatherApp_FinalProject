@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
-import { SafeAreaView, StyleSheet, TouchableOpacity, Text, View } from 'react-native';
+import { SafeAreaView, StyleSheet, TouchableOpacity, Text, View, Image } from 'react-native';
 import { router } from 'expo-router';
 import AntDesign from '@expo/vector-icons/AntDesign';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,7 +13,7 @@ const IntroPage = () => {
       try {
         const seenIntro = await AsyncStorage.getItem('hasSeenIntro');
         if (seenIntro === 'true') {
-          router.replace('/(tabs)');
+          router.replace('/(tabs)/index');
         } else {
           setHasSeenIntro(false);
         }
@@ -27,10 +27,10 @@ const IntroPage = () => {
   const handleDismiss = async () => {
     try {
       await AsyncStorage.setItem('hasSeenIntro', 'true');
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/index');
     } catch (error) {
       console.error('Error saving intro status:', error);
-      router.replace('/(tabs)'); // Fallback navigation
+      router.replace('/(tabs)/index');
     }
   };
 
@@ -44,26 +44,18 @@ const IntroPage = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Animated.View
-        entering={FadeIn.duration(300)}
-        style={styles.overlay}
-      >
-        <TouchableOpacity
-          style={styles.overlayTouchable}
-          onPress={handleDismiss}
-          activeOpacity={1}
-        />
-        <Animated.View
-          entering={SlideInDown.duration(500).springify()}
-          style={styles.popup}
-        >
-          <TouchableOpacity
-            onPress={handleDismiss}
-            style={styles.closeButton}
-          >
+      <Animated.View entering={FadeIn.duration(300)} style={styles.overlay}>
+        <TouchableOpacity style={styles.overlayTouchable} onPress={handleDismiss} activeOpacity={1} />
+        <Animated.View entering={SlideInDown.duration(500).springify()} style={styles.popup}>
+          <TouchableOpacity onPress={handleDismiss} style={styles.closeButton}>
             <AntDesign name="close" size={22} color="grey" />
           </TouchableOpacity>
           <View style={styles.content}>
+            <Image
+              source={require('../../assets/welcome-image.png')}
+              style={styles.welcomeImage}
+              defaultSource={require('../../assets/welcome-image.png')}
+            />
             <Text style={styles.title}>Chào mừng đến với Weather App</Text>
             <Text style={styles.description}>
               Khám phá thời tiết hiện tại và dự báo tại vị trí của bạn hoặc bất kỳ thành phố nào trên thế giới. Lưu các thành phố yêu thích và tùy chỉnh cài đặt theo ý thích!
@@ -118,6 +110,11 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
+  },
+  welcomeImage: {
+    width: 150,
+    height: 150,
+    marginBottom: 20,
   },
   title: {
     color: '#fff',

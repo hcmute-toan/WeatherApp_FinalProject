@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { SafeAreaView, Text, StyleSheet, FlatList, View, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCurrentWeather } from '../../services/weather';
+import { getCurrentWeather, getCurrentLocation, getHourlyForecast, getDailyForecast } from '../../services/weather';
 import { City, WeatherData } from '../../types/weather';
+import { router } from 'expo-router';
+import CustomFlatList from '@/src/components/CustomFlatList/CustomFlatList';
 
 const PlaceholderIcon = ({ style }: { style?: object }) => (
   <View style={[{ width: 50, height: 50, backgroundColor: '#ccc', borderRadius: 25, justifyContent: 'center', alignItems: 'center' }, style]}>
@@ -14,25 +16,50 @@ const PlaceholderIcon = ({ style }: { style?: object }) => (
 const LocationTab = () => {
   const [favorites, setFavorites] = useState<City[]>([]);
   const [weatherData, setWeatherData] = useState<{ [key: string]: WeatherData }>({});
+  const [currentLocation, setCurrentLocation] = useState<City | null>(null);
+  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F' }>({ tempUnit: 'C' });
 
   useEffect(() => {
     (async () => {
       try {
+        const loc = await getCurrentLocation();
+        const cityResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${loc.latitude}&longitude=${loc.longitude}`);
+        const cityData = await cityResponse.json();
+        const city: City = {
+          id: 0,
+          name: cityData.results?.[0]?.name || 'Vị trí hiện tại',
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          country: cityData.results?.[0]?.country || 'Việt Nam',
+        };
+        setCurrentLocation(city);
+
         const savedFavorites = await AsyncStorage.getItem('favoriteCities');
         if (savedFavorites) {
           const cities: City[] = JSON.parse(savedFavorites);
           setFavorites(cities);
-          const weatherPromises = cities.map(async (city) => {
-            const weather = await getCurrentWeather({ latitude: city.latitude, longitude: city.longitude });
-            return { id: city.id.toString(), weather };
-          });
-          const weatherResults = await Promise.all(weatherPromises);
-          const newWeatherData = weatherResults.reduce((acc, { id, weather }) => {
-            acc[id] = weather;
-            return acc;
-          }, {} as { [key: string]: WeatherData });
-          setWeatherData(newWeatherData);
         }
+
+        const savedSettings = await AsyncStorage.getItem('settings');
+        if (savedSettings) {
+          setSettings(JSON.parse(savedSettings));
+        }
+
+        const weatherPromises = [
+          { id: 'current', weather: await getCurrentWeather({ latitude: city.latitude, longitude: city.longitude }) },
+          ...(savedFavorites
+            ? JSON.parse(savedFavorites).map(async (city: City) => ({
+                id: city.id.toString(),
+                weather: await getCurrentWeather({ latitude: city.latitude, longitude: city.longitude }),
+              }))
+            : []),
+        ];
+        const weatherResults = await Promise.all(weatherPromises);
+        const newWeatherData = weatherResults.reduce((acc, { id, weather }) => {
+          acc[id] = weather;
+          return acc;
+        }, {} as { [key: string]: WeatherData });
+        setWeatherData(newWeatherData);
       } catch (error) {
         console.error('Error loading favorites or weather:', error);
       }
@@ -51,6 +78,27 @@ const LocationTab = () => {
       });
     } catch (error) {
       console.error('Error removing favorite:', error);
+    }
+  };
+
+  const viewCityWeather = async (city: City) => {
+    try {
+      const [weather, hourly, daily] = await Promise.all([
+        getCurrentWeather({ latitude: city.latitude, longitude: city.longitude }),
+        getHourlyForecast({ latitude: city.latitude, longitude: city.longitude }),
+        getDailyForecast({ latitude: city.latitude, longitude: city.longitude }),
+      ]);
+      router.push({
+        pathname: '/(tabs)/cityWeather',
+        params: {
+          city: JSON.stringify(city),
+          weather: JSON.stringify(weather),
+          hourly: JSON.stringify(hourly),
+          daily: JSON.stringify(daily),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching city weather:', error);
     }
   };
 
@@ -83,31 +131,37 @@ const LocationTab = () => {
     return PlaceholderIcon;
   };
 
+  const convertTemperature = (temp: number) => {
+    return settings.tempUnit === 'F' ? (temp * 9) / 5 + 32 : temp;
+  };
+
+  const data = currentLocation ? [currentLocation, ...favorites] : favorites;
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient style={styles.gradient} colors={['#1F2A44', '#2A3550']} locations={[0, 0.8]}>
-        <FlatList
-          data={favorites}
+        <CustomFlatList
+          data={data}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => {
-            const weather = weatherData[item.id.toString()];
+            const weather = weatherData[item.id === 0 ? 'current' : item.id.toString()];
             const WeatherIcon = getWeatherIconComponent(weather?.hourly.weather_code?.[0], weather?.hourly.is_day?.[0]);
             return (
-              <View style={styles.locationItem}>
+              <TouchableOpacity style={styles.locationItem} onPress={() => viewCityWeather(item)}>
                 <WeatherIcon style={styles.itemIcon} />
                 <View style={styles.itemContent}>
                   <Text style={styles.itemName}>{item.name}, {item.country}</Text>
                   <Text style={styles.itemDetails}>
-                    {weather?.hourly.temperature_2m[0] || '--'}°C, {weatherCodeToText(weather?.hourly.weather_code?.[0])}
+                    {weather ? convertTemperature(weather.hourly.temperature_2m[0]).toFixed(1) : '--'}°{settings.tempUnit},{' '}
+                    {weatherCodeToText(weather?.hourly.weather_code?.[0])}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => removeFavorite(item.id)}
-                >
-                  <Text style={styles.removeButtonText}>Xóa</Text>
-                </TouchableOpacity>
-              </View>
+                {item.id !== 0 && (
+                  <TouchableOpacity style={styles.removeButton} onPress={() => removeFavorite(item.id)}>
+                    <Text style={styles.removeButtonText}>Xóa</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
             );
           }}
           ListEmptyComponent={<Text style={styles.emptyText}>Chưa có thành phố yêu thích</Text>}

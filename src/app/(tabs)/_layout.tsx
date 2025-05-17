@@ -34,6 +34,7 @@ const TabLayout = () => {
       <Tabs.Screen name="search" options={{ title: 'Tìm kiếm' }} />
       <Tabs.Screen name="location" options={{ title: 'Vị trí' }} />
       <Tabs.Screen name="setting" options={{ title: 'Cài đặt' }} />
+      <Tabs.Screen name="cityWeather" options={{ title: 'Thời tiết thành phố', href: null }} />
     </Tabs>
   );
 };

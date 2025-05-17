@@ -19,9 +19,9 @@ export const getCurrentWeather = async (params: WeatherParams = {}): Promise<Wea
   const defaultParams = {
     latitude: params.latitude || 16.1667,
     longitude: params.longitude || 107.8333,
-    hourly: 'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,wind_gusts_10m_max',
-    timezone: params.timezone || 'auto',
+    hourly: 'temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,uv_index',
+    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
+    timezone: params.timezone || 'Asia/Ho_Chi_Minh',
     forecast_days: params.forecast_days || 7,
     past_days: params.past_days || 0,
   };
@@ -38,7 +38,7 @@ export const getCurrentWeather = async (params: WeatherParams = {}): Promise<Wea
 
 export const getHourlyForecast = async (params: WeatherParams = {}): Promise<HourlyForecast[]> => {
   const data = await getCurrentWeather(params);
-  const indices = Array.from({ length: 24 }, (_, i) => i); // Next 24 hours
+  const indices = Array.from({ length: 24 }, (_, i) => i);
   return indices.map((i) => ({
     time: data.hourly.time[i],
     temperature: data.hourly.temperature_2m?.[i],
@@ -49,6 +49,7 @@ export const getHourlyForecast = async (params: WeatherParams = {}): Promise<Hou
     wind_direction_10m: data.hourly.wind_direction_10m?.[i],
     wind_gusts_10m: data.hourly.wind_gusts_10m?.[i],
     is_day: data.hourly.is_day?.[i],
+    uv_index: data.hourly.uv_index?.[i],
     unit: data.hourly_units.temperature_2m || '°C',
   }));
 };
@@ -63,6 +64,7 @@ export const getDailyForecast = async (params: WeatherParams = {}): Promise<Dail
     weather_code: data.daily.weather_code?.[index],
     wind_speed_10m_max: data.daily.wind_speed_10m_max?.[index],
     wind_gusts_10m_max: data.daily.wind_gusts_10m_max?.[index],
+    uv_index_max: data.daily.uv_index_max?.[index],
     unit: data.daily_units.temperature_2m_max || '°C',
   }));
 };
