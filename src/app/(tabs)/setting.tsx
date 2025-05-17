@@ -99,6 +99,11 @@ const SettingPage = () => {
     return weatherCodes[code] || 'Không xác định';
   };
 
+  const timeOptions = Array.from({ length: 24 }, (_, i) => {
+    const hour = i.toString().padStart(2, '0') + ':00';
+    return hour;
+  });
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient style={styles.gradient} colors={['#1F2A44', '#2A3550']} locations={[0, 0.8]}>
@@ -113,10 +118,9 @@ const SettingPage = () => {
                   onValueChange={(value) => handleNotificationTimeChange(value, index)}
                   style={styles.picker}
                 >
-                  {Array.from({ length: 24 }, (_, i) => {
-                    const hour = i.toString().padStart(2, '0') + ':00';
-                    return <Picker.Item key={hour} label={hour} value={hour} />;
-                  })}
+                  {timeOptions.map((hour) => (
+                    <Picker.Item key={hour} label={hour} value={hour} />
+                  ))}
                 </Picker>
                 {notificationTimes.length > 1 && (
                   <TouchableOpacity style={styles.removeButton} onPress={() => removeNotificationTime(index)}>
@@ -167,63 +171,18 @@ const SettingPage = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 20,
-  },
-  gradient: {
-    flex: 1,
-    padding: 20,
-  },
-  content: {
-    flex: 1,
-  },
-  heading: {
-    fontWeight: '700',
-    fontSize: 30,
-    color: '#fff',
-    marginBottom: 20,
-  },
-  settingItem: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 10,
-  },
-  picker: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    height: 50,
-  },
-  notificationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  removeButton: {
-    backgroundColor: '#FF3B30',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginLeft: 10,
-  },
-  removeButtonText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-  },
+  container: { flex: 1, paddingTop: 20 },
+  gradient: { flex: 1 },
+  content: { flex: 1, padding: 20 },
+  heading: { fontWeight: '700', fontSize: 30, color: '#fff', marginBottom: 20 },
+  settingItem: { marginBottom: 20 },
+  label: { fontSize: 18, color: '#fff', marginBottom: 10 },
+  notificationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  picker: { backgroundColor: '#fff', borderRadius: 8, height: 40, width: 150, color: '#000' },
+  removeButton: { backgroundColor: '#FF3B30', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginLeft: 10 },
+  removeButtonText: { color: '#fff', fontSize: 14 },
+  addButton: { backgroundColor: '#007AFF', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, alignSelf: 'flex-start' },
+  addButtonText: { color: '#fff', fontSize: 16 },
 });
 
 export default SettingPage;

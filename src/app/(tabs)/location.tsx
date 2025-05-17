@@ -16,34 +16,31 @@ const LocationPage = () => {
   const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
 
   useEffect(() => {
-    (async () => {
-      try {
-        const savedFavorites = await AsyncStorage.getItem('favorites');
-        const savedSettings = await AsyncStorage.getItem('settings');
-        if (savedSettings) {
-          setSettings(JSON.parse(savedSettings));
-        }
-        if (savedFavorites) {
-          const favoriteList = JSON.parse(savedFavorites);
-          const updatedFavorites = await Promise.all(
-            favoriteList.map(async (fav: { city: string; latitude: number; longitude: number }) => {
-              const weather = await getCurrentWeather({ latitude: fav.latitude, longitude: fav.longitude });
-              return {
-                ...fav,
-                weather: {
-                  temp: weather.hourly.temperature_2m[0],
-                  description: weatherCodeToText(weather.hourly.weather_code?.[0]),
-                },
-              };
-            })
-          );
-          setFavorites(updatedFavorites);
-        }
-      } catch (error) {
-        console.error('Error loading favorites:', error);
-      }
-    })();
+    loadFavorites();
   }, []);
+
+  const loadFavorites = async () => {
+    try {
+      const savedFavorites = await AsyncStorage.getItem('favorites');
+      const savedSettings = await AsyncStorage.getItem('settings');
+      if (savedSettings) setSettings(JSON.parse(savedSettings));
+      if (savedFavorites) {
+        const favoriteList = JSON.parse(savedFavorites);
+        const updatedFavorites = await Promise.all(
+          favoriteList.map(async (fav: { city: string; latitude: number; longitude: number }) => {
+            const weather = await getCurrentWeather({ latitude: fav.latitude, longitude: fav.longitude });
+            return {
+              ...fav,
+              weather: { temp: weather.hourly.temperature_2m[0], description: weatherCodeToText(weather.hourly.weather_code?.[0]) },
+            };
+          })
+        );
+        setFavorites(updatedFavorites);
+      }
+    } catch (error) {
+      console.error('Error loading favorites:', error);
+    }
+  };
 
   const weatherCodeToText = (code?: number): string => {
     if (!code) return 'Không xác định';
@@ -57,14 +54,19 @@ const LocationPage = () => {
     return weatherCodes[code] || 'Không xác định';
   };
 
-  const convertTemperature = (temp: number, unit: 'C' | 'F') => {
-    return unit === 'F' ? (temp * 9) / 5 + 32 : temp;
-  };
+  const convertTemperature = (temp: number, unit: 'C' | 'F') => unit === 'F' ? (temp * 9) / 5 + 32 : temp;
 
   const handleRemoveFavorite = async (index: number) => {
     const newFavorites = favorites.filter((_, i) => i !== index);
     setFavorites(newFavorites);
     await AsyncStorage.setItem('favorites', JSON.stringify(newFavorites));
+  };
+
+  const handleSelectCity = (city: string, latitude: number, longitude: number) => {
+    router.push({
+      pathname: '/(tabs)',
+      params: { city, latitude: latitude.toString(), longitude: longitude.toString() },
+    });
   };
 
   return (
@@ -80,7 +82,10 @@ const LocationPage = () => {
         data={favorites}
         keyExtractor={(item, index) => index.toString()}
         renderItem={({ item, index }) => (
-          <View style={styles.locationItem}>
+          <TouchableOpacity
+            style={styles.locationItem}
+            onPress={() => handleSelectCity(item.city, item.latitude, item.longitude)}
+          >
             <View style={styles.locationInfo}>
               <Text style={styles.cityName}>{item.city}</Text>
               <Text style={styles.weatherInfo}>
@@ -90,9 +95,11 @@ const LocationPage = () => {
             <TouchableOpacity onPress={() => handleRemoveFavorite(index)}>
               <Ionicons name="trash-outline" size={20} color="#FF3B30" />
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         )}
         ListEmptyComponent={<Text style={styles.emptyText}>Chưa có địa điểm yêu thích</Text>}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={true}
       />
       <TouchableOpacity style={styles.addButton} onPress={() => router.push('/(tabs)/search')}>
         <Text style={styles.addButtonText}>Thêm địa điểm</Text>
@@ -102,61 +109,17 @@ const LocationPage = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1F2A44',
-    paddingTop: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  locationItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    padding: 15,
-    marginHorizontal: 20,
-    marginBottom: 10,
-  },
-  locationInfo: {
-    flex: 1,
-  },
-  cityName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  weatherInfo: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    margin: 20,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  emptyText: {
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 50,
-  },
+  container: { flex: 1, backgroundColor: '#1F2A44', paddingTop: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  locationItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 10, padding: 15, marginHorizontal: 20, marginBottom: 10 },
+  locationInfo: { flex: 1 },
+  cityName: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+  weatherInfo: { fontSize: 14, color: '#fff' },
+  addButton: { backgroundColor: '#007AFF', paddingVertical: 15, borderRadius: 10, alignItems: 'center', margin: 20 },
+  addButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  emptyText: { color: '#fff', textAlign: 'center', marginTop: 50 },
+  listContent: { paddingBottom: 20, paddingTop: 10 },
 });
 
 export default LocationPage;

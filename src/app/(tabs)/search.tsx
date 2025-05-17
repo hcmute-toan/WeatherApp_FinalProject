@@ -13,9 +13,7 @@ const SearchPage = () => {
   useEffect(() => {
     (async () => {
       const savedSettings = await AsyncStorage.getItem('settings');
-      if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
-      }
+      if (savedSettings) setSettings(JSON.parse(savedSettings));
     })();
   }, []);
 
@@ -32,10 +30,7 @@ const SearchPage = () => {
               city: `${result.name}, ${result.country}`,
               latitude: result.latitude,
               longitude: result.longitude,
-              weather: {
-                temp: weather.hourly.temperature_2m[0],
-                description: weatherCodeToText(weather.hourly.weather_code?.[0]),
-              },
+              weather: { temp: weather.hourly.temperature_2m[0], description: weatherCodeToText(weather.hourly.weather_code?.[0]) },
             };
           })
         );
@@ -58,9 +53,7 @@ const SearchPage = () => {
     return weatherCodes[code] || 'Không xác định';
   };
 
-  const convertTemperature = (temp: number, unit: 'C' | 'F') => {
-    return unit === 'F' ? (temp * 9) / 5 + 32 : temp;
-  };
+  const convertTemperature = (temp: number, unit: 'C' | 'F') => unit === 'F' ? (temp * 9) / 5 + 32 : temp;
 
   const handleAddFavorite = async (result: { city: string; latitude: number; longitude: number; weather?: { temp: number; description: string } }) => {
     try {
@@ -69,6 +62,7 @@ const SearchPage = () => {
       if (!favorites.some((fav: any) => fav.city === result.city)) {
         favorites.push({ city: result.city, latitude: result.latitude, longitude: result.longitude });
         await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
+        setResults([]); // Clear results
         router.push('/(tabs)/location');
       }
     } catch (error) {
@@ -108,67 +102,25 @@ const SearchPage = () => {
           </View>
         )}
         ListEmptyComponent={<Text style={styles.emptyText}>Không có kết quả</Text>}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={true}
       />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1F2A44',
-    paddingTop: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-  },
-  searchInput: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    padding: 10,
-    marginLeft: 10,
-    color: '#fff',
-  },
-  resultItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    padding: 15,
-    marginHorizontal: 20,
-    marginBottom: 10,
-  },
-  resultInfo: {
-    flex: 1,
-  },
-  cityName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  weatherInfo: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 5,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  emptyText: {
-    color: '#fff',
-    textAlign: 'center',
-    marginTop: 50,
-  },
+  container: { flex: 1, backgroundColor: '#1F2A44', paddingTop: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 20 },
+  searchInput: { flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 10, padding: 10, marginLeft: 10, color: '#fff' },
+  resultItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 10, padding: 15, marginHorizontal: 20, marginBottom: 10 },
+  resultInfo: { flex: 1 },
+  cityName: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+  weatherInfo: { fontSize: 14, color: '#fff' },
+  addButton: { backgroundColor: '#007AFF', paddingVertical: 5, paddingHorizontal: 15, borderRadius: 5 },
+  addButtonText: { color: '#fff', fontSize: 14 },
+  emptyText: { color: '#fff', textAlign: 'center', marginTop: 50 },
+  listContent: { paddingBottom: 20, paddingTop: 10 },
 });
 
 export default SearchPage;
