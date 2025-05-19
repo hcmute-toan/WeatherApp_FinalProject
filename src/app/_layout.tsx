@@ -1,10 +1,10 @@
-import { Stack } from 'expo-router';
+// import { Stack } from 'expo-router';
 
-export default function RootLayout() {
-  return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)/intro" />
-      <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
-    </Stack>
-  );
-}
+// export default function RootLayout() {
+//   return (
+//     <Stack screenOptions={{ headerShown: false }}>
+//       <Stack.Screen name="(auth)/intro" />
+//       <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+//     </Stack>
+//   );
+// }
