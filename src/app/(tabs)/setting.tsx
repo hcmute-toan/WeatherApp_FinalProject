@@ -30,6 +30,10 @@ const SettingPage = () => {
     })();
   }, []);
 
+  useEffect(() => {
+    saveSettings();
+  }, [notificationTimes, tempUnit, windUnit, uvNotifications]);
+
   const saveSettings = async () => {
     try {
       const settings = { notificationTimes, tempUnit, windUnit, uvNotifications };
@@ -41,12 +45,14 @@ const SettingPage = () => {
       const cityData = await cityResponse.json();
       const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
 
-      if (uvNotifications) {
+      if (uvNotifications || notificationTimes.length > 0) {
         await scheduleNotifications({
           Location: { Name: cityName },
           Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
           WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
           UVIndex: weather.hourly.uv_index?.[0] || 0,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
         });
       }
     } catch (error) {
@@ -58,33 +64,35 @@ const SettingPage = () => {
     const newTimes = [...notificationTimes];
     newTimes[index] = value;
     setNotificationTimes(newTimes);
-    saveSettings();
   };
 
   const addNotificationTime = () => {
+    if (notificationTimes.length >= 4) {
+      alert('Bạn chỉ có thể thêm tối đa 4 thời gian thông báo.');
+      return;
+    }
     setNotificationTimes([...notificationTimes, '12:00']);
-    saveSettings();
   };
 
   const removeNotificationTime = (index: number) => {
+    if (notificationTimes.length <= 1) {
+      alert('Bạn phải giữ ít nhất 1 thời gian thông báo.');
+      return;
+    }
     const newTimes = notificationTimes.filter((_, i) => i !== index);
     setNotificationTimes(newTimes);
-    saveSettings();
   };
 
   const handleTempUnitChange = (value: 'C' | 'F') => {
     setTempUnit(value);
-    saveSettings();
   };
 
   const handleWindUnitChange = (value: 'kmh' | 'mph') => {
     setWindUnit(value);
-    saveSettings();
   };
 
   const handleUvNotificationsChange = (value: boolean) => {
     setUvNotifications(value);
-    saveSettings();
   };
 
   const weatherCodeToText = (code?: number): string => {
@@ -105,7 +113,7 @@ const SettingPage = () => {
         <View style={styles.content}>
           <Text style={styles.heading}>Cài Đặt</Text>
           <View style={styles.settingItem}>
-            <Text style={styles.label}>Thời gian thông báo</Text>
+            <Text style={styles.label}>Thời gian thông báo (Tối đa 4)</Text>
             {notificationTimes.map((time, index) => (
               <View key={index} style={styles.notificationRow}>
                 <Picker
@@ -125,9 +133,11 @@ const SettingPage = () => {
                 )}
               </View>
             ))}
-            <TouchableOpacity style={styles.addButton} onPress={addNotificationTime}>
-              <Text style={styles.addButtonText}>Thêm thời gian</Text>
-            </TouchableOpacity>
+            {notificationTimes.length < 4 && (
+              <TouchableOpacity style={styles.addButton} onPress={addNotificationTime}>
+                <Text style={styles.addButtonText}>Thêm thời gian</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.settingItem}>
             <Text style={styles.label}>Đơn vị nhiệt độ</Text>

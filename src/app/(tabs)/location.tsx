@@ -1,49 +1,64 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { SafeAreaView, Text, StyleSheet, View, TouchableOpacity, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentWeather } from '../../services/weather';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
-const PlaceholderIcon = ({ style }: { style?: object }) => (
+const PlaceholderIcon = ({ style, code }: { style?: object; code?: number }) => (
   <View style={[{ width: 30, height: 30, backgroundColor: '#ccc', borderRadius: 15, justifyContent: 'center', alignItems: 'center' }, style]}>
     <Text style={{ color: '#fff' }}>☁</Text>
   </View>
 );
 
 const LocationPage = () => {
-  const [favorites, setFavorites] = useState<{ city: string; latitude: number; longitude: number; weather?: { temp: number; description: string } }[]>([]);
+  const [favorites, setFavorites] = useState<
+    { city: string; latitude: number; longitude: number; weather?: { temp: number; description: string; code?: number }; isDefault: boolean }[]
+  >([]);
   const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const savedFavorites = await AsyncStorage.getItem('favorites');
-        const savedSettings = await AsyncStorage.getItem('settings');
-        if (savedSettings) {
-          setSettings(JSON.parse(savedSettings));
-        }
-        if (savedFavorites) {
-          const favoriteList = JSON.parse(savedFavorites);
-          const updatedFavorites = await Promise.all(
-            favoriteList.map(async (fav: { city: string; latitude: number; longitude: number }) => {
+  const loadFavorites = async () => {
+    try {
+      const savedFavorites = await AsyncStorage.getItem('favorites');
+      const savedSettings = await AsyncStorage.getItem('settings');
+      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : { tempUnit: 'C', windUnit: 'kmh' };
+      setSettings(parsedSettings);
+
+      if (savedFavorites) {
+        const favoriteList = JSON.parse(savedFavorites);
+        const updatedFavorites = await Promise.all(
+          favoriteList.map(async (fav: { city: string; latitude: number; longitude: number; isDefault: boolean }) => {
+            try {
               const weather = await getCurrentWeather({ latitude: fav.latitude, longitude: fav.longitude });
               return {
                 ...fav,
                 weather: {
-                  temp: weather.hourly.temperature_2m[0],
+                  temp: convertTemperature(weather.hourly.temperature_2m[0], parsedSettings.tempUnit),
                   description: weatherCodeToText(weather.hourly.weather_code?.[0]),
+                  code: weather.hourly.weather_code?.[0],
                 },
               };
-            })
-          );
-          setFavorites(updatedFavorites);
-        }
-      } catch (error) {
-        console.error('Error loading favorites:', error);
+            } catch (err) {
+              console.error(`Lỗi khi lấy thời tiết cho ${fav.city}:`, err);
+              return { ...fav, weather: undefined };
+            }
+          })
+        );
+        setFavorites(updatedFavorites);
+      } else {
+        setFavorites([]);
       }
-    })();
-  }, []);
+    } catch (error) {
+      console.error('Lỗi khi tải danh sách yêu thích:', error);
+      setFavorites([]);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadFavorites();
+    }, [])
+  );
 
   const weatherCodeToText = (code?: number): string => {
     if (!code) return 'Không xác định';
@@ -58,13 +73,48 @@ const LocationPage = () => {
   };
 
   const convertTemperature = (temp: number, unit: 'C' | 'F') => {
+    if (typeof temp !== 'number' || isNaN(temp)) return 0;
     return unit === 'F' ? (temp * 9) / 5 + 32 : temp;
   };
 
   const handleRemoveFavorite = async (index: number) => {
+    const removedFav = favorites[index];
     const newFavorites = favorites.filter((_, i) => i !== index);
     setFavorites(newFavorites);
     await AsyncStorage.setItem('favorites', JSON.stringify(newFavorites));
+
+    // If the removed location was default, clear defaultLocation
+    if (removedFav.isDefault) {
+      await AsyncStorage.removeItem('defaultLocation');
+    }
+  };
+
+  const handleSetDefault = async (index: number) => {
+    const newFavorites = favorites.map((fav, i) => ({
+      ...fav,
+      isDefault: i === index,
+    }));
+    setFavorites(newFavorites);
+    await AsyncStorage.setItem('favorites', JSON.stringify(newFavorites));
+
+    // Save the default location
+    const defaultLocation = {
+      city: newFavorites[index].city,
+      latitude: newFavorites[index].latitude,
+      longitude: newFavorites[index].longitude,
+    };
+    await AsyncStorage.setItem('defaultLocation', JSON.stringify(defaultLocation));
+  };
+
+  const handleSelectLocation = (location: { city: string; latitude: number; longitude: number }) => {
+    router.push({
+      pathname: '/(tabs)',
+      params: {
+        latitude: location.latitude.toString(),
+        longitude: location.longitude.toString(),
+        city: location.city,
+      },
+    });
   };
 
   return (
@@ -74,29 +124,45 @@ const LocationPage = () => {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Địa điểm</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
+          <Ionicons name="add" size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
       <FlatList
         data={favorites}
-        keyExtractor={(item, index) => index.toString()}
+        keyExtractor={(item, index) => `${item.latitude}-${item.longitude}-${index}`}
         renderItem={({ item, index }) => (
           <View style={styles.locationItem}>
-            <View style={styles.locationInfo}>
-              <Text style={styles.cityName}>{item.city}</Text>
-              <Text style={styles.weatherInfo}>
-                {convertTemperature(item.weather?.temp || 0, settings.tempUnit).toFixed(1)}°{settings.tempUnit}, {item.weather?.description}
+            <TouchableOpacity
+              style={styles.locationInfo}
+              onPress={() => handleSelectLocation(item)}
+            >
+              <Text style={styles.cityName}>
+                {item.city} {item.isDefault ? '(Mặc định)' : ''}
               </Text>
-            </View>
-            <TouchableOpacity onPress={() => handleRemoveFavorite(index)}>
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              <Text style={styles.weatherInfo}>
+                {item.weather
+                  ? `${convertTemperature(item.weather.temp, settings.tempUnit).toFixed(1)}°${settings.tempUnit}, ${item.weather.description}`
+                  : 'Không có dữ liệu thời tiết'}
+              </Text>
             </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.defaultButton, item.isDefault && styles.defaultButtonActive]}
+                onPress={() => handleSetDefault(index)}
+              >
+                <Text style={styles.defaultButtonText}>
+                  {item.isDefault ? 'Mặc định' : 'Đặt mặc định'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleRemoveFavorite(index)}>
+                <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
         ListEmptyComponent={<Text style={styles.emptyText}>Chưa có địa điểm yêu thích</Text>}
       />
-      <TouchableOpacity style={styles.addButton} onPress={() => router.push('/(tabs)/search')}>
-        <Text style={styles.addButtonText}>Thêm địa điểm</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -140,17 +206,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
   },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 15,
-    borderRadius: 10,
+  actionButtons: {
+    flexDirection: 'row',
     alignItems: 'center',
-    margin: 20,
   },
-  addButtonText: {
+  defaultButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  defaultButtonActive: {
+    backgroundColor: '#4CAF50',
+  },
+  defaultButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 12,
   },
   emptyText: {
     color: '#fff',

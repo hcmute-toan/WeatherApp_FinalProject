@@ -32,7 +32,7 @@ const SearchPage = () => {
     } catch (err) {
       console.error('Lỗi khi lấy cài đặt:', err);
     }
-    return { tempUnit: 'C', windUnit: 'kmh' }; // Giá trị mặc định nếu lỗi
+    return { tempUnit: 'C', windUnit: 'kmh' };
   };
 
   const applySettings = async () => {
@@ -53,8 +53,6 @@ const SearchPage = () => {
         if (selectedCity && settingsChanged) {
           console.log('Cài đặt thay đổi, cập nhật dữ liệu chi tiết cho:', selectedCity.city);
           await handleViewDetails(selectedCity);
-        } else if (selectedCity) {
-          console.log('Không thay đổi cài đặt, giữ nguyên dữ liệu hiện tại');
         }
         prevSettingsRef.current = { tempUnit: newSettings.tempUnit, windUnit: newSettings.windUnit };
       };
@@ -75,7 +73,20 @@ const SearchPage = () => {
   useEffect(() => {
     if (selectedCity && detailedWeather && isDataLoaded && selectedDateIndex !== null) {
       const hourlyTemp = convertTemperature(detailedWeather.hourly.temperature_2m[selectedDateIndex * 24] || detailedWeather.hourly.temperature_2m[0], settings.tempUnit);
-      setSelectedCity(prev => prev ? { ...prev, weather: { ...prev.weather, temp: hourlyTemp } } : null);
+      setSelectedCity(prev =>
+        prev
+          ? {
+              ...prev,
+              weather: prev.weather
+                ? {
+                    ...prev.weather,
+                    temp: hourlyTemp,
+                    description: prev.weather.description ?? '',
+                  }
+                : { temp: hourlyTemp, description: '', code: undefined },
+            }
+          : null
+      );
     }
   }, [detailedWeather, isDataLoaded, selectedDateIndex, settings.tempUnit]);
 
@@ -91,7 +102,6 @@ const SearchPage = () => {
     if (!query || query.length < 3) {
       setResults([]);
       setError(null);
-      // Không reset selectedCity khi chỉ thay đổi query
       setDetailedWeather(null);
       setIsDataLoaded(false);
       return;
@@ -99,7 +109,7 @@ const SearchPage = () => {
 
     setIsLoading(true);
     setError(null);
-    setSelectedCity(null); // Reset chỉ khi tìm kiếm mới
+    setSelectedCity(null);
     setDetailedWeather(null);
     setIsDataLoaded(false);
 
@@ -197,9 +207,6 @@ const SearchPage = () => {
       return 0;
     }
     const convertedTemp = unit === 'F' ? (temp * 9) / 5 + 32 : temp;
-    if (convertedTemp > 150 && unit === 'F') {
-      console.warn('Nhiệt độ °F bất thường:', convertedTemp, 'từ giá trị gốc:', temp);
-    }
     console.log(`Chuyển đổi nhiệt độ: ${temp}°C -> ${convertedTemp}${unit}`);
     return Math.round(convertedTemp);
   };
@@ -251,7 +258,6 @@ const SearchPage = () => {
         dailyMinTemps: data.daily.temperature_2m_min,
       });
 
-      // Điều chỉnh dữ liệu theo settings
       const adjustedWeather = {
         ...data,
         hourly: {
@@ -270,10 +276,22 @@ const SearchPage = () => {
       setDetailedWeather(adjustedWeather);
       setIsDataLoaded(true);
 
-      // Cập nhật temp của selectedCity
       if (adjustedWeather.hourly && adjustedWeather.hourly.temperature_2m.length > 0) {
         const initialTemp = adjustedWeather.hourly.temperature_2m[0];
-        setSelectedCity(prev => prev ? { ...prev, weather: { ...prev.weather, temp: initialTemp } } : null);
+        setSelectedCity(prev =>
+          prev
+            ? {
+                ...prev,
+                weather: prev.weather
+                  ? {
+                      ...prev.weather,
+                      temp: initialTemp,
+                      description: prev.weather.description ?? '',
+                    }
+                  : { temp: initialTemp, description: '', code: undefined },
+              }
+            : null
+        );
       }
     } catch (err) {
       console.error('Lỗi khi lấy chi tiết thời tiết:', err);
@@ -302,7 +320,7 @@ const SearchPage = () => {
   const get24HourData = (index: number | null = 0) => {
     if (!detailedWeather || !detailedWeather.hourly) return null;
     const startIndex = index !== null ? index * 24 : 0;
-    const hours = detailedWeather.hourly.time.slice(startIndex, startIndex + 24).map(time => time.split('T')[1].slice(0, 5));
+    const hours = detailedWeather.hourly.time.slice(startIndex, startIndex + 24).map((time: string) => time.split('T')[1].slice(0, 5));
     const temps = detailedWeather.hourly.temperature_2m.slice(startIndex, startIndex + 24);
     const windSpeeds = detailedWeather.hourly.wind_speed_10m.slice(startIndex, startIndex + 24);
 
@@ -346,9 +364,11 @@ const SearchPage = () => {
               </TouchableOpacity>
             </TouchableOpacity>
           )}
-          ListEmptyComponent={!isLoading && !error && searchQuery.length >= 3 && (
-            <Text style={styles.emptyText}>Không có kết quả</Text>
-          )}
+          ListEmptyComponent={
+            !isLoading && !error && searchQuery.length >= 3
+              ? <Text style={styles.emptyText}>Không có kết quả</Text>
+              : null
+          }
         />
       ) : (
         <ScrollView contentContainerStyle={styles.detailsContainer}>
