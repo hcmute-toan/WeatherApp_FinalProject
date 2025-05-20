@@ -1,6 +1,4 @@
 import * as Notifications from 'expo-notifications';
-import { getSettings } from '../utils/storage';
-import { getCurrentWeather } from './weather';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -10,49 +8,58 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export const scheduleNotifications = async (weather: {
+interface WeatherData {
   Location: { Name: string };
   Temperature: { Metric: { Value: number; Unit: string } };
   WeatherText: string;
-  UVIndex?: number;
   latitude: number;
   longitude: number;
-}) => {
+  notificationTimes?: string[]; // Array of times in "HH:MM" (24-hour) format
+}
+
+export const scheduleNotifications = async (weather: WeatherData) => {
   await Notifications.cancelAllScheduledNotificationsAsync();
-  const settings = await getSettings();
 
-  for (const time of settings.notificationTimes) {
+  const { Location, Temperature, WeatherText, notificationTimes } = weather;
+
+  if (!notificationTimes || notificationTimes.length === 0) {
+    console.log('No notification times provided');
+    return;
+  }
+
+  const suggestions = generateSuggestions(Temperature.Metric.Value, WeatherText);
+  const title = `Cập nhật thời tiết cho ${Location.Name}`;
+  const body = `${WeatherText}. Nhiệt độ: ${Math.round(Temperature.Metric.Value)}°${Temperature.Metric.Unit}. ${suggestions.join(' ')}`;
+
+  const now = new Date();
+  const currentHours = now.getHours();
+  const currentMinutes = now.getMinutes();
+
+  for (const time of notificationTimes) {
     const [hour, minute] = time.split(':').map(Number);
-    
-    // Fetch forecast data for the next 3 hours from the notification time
-    const now = new Date();
-    const forecastTime = new Date(now);
-    forecastTime.setHours(hour, minute, 0, 0);
-    const hoursUntilNotification = (forecastTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-    const forecastIndex = Math.max(0, Math.round(hoursUntilNotification));
+    if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      console.error(`Invalid time format: ${time}`);
+      continue;
+    }
 
-    // Fetch weather forecast for the location
-    const forecast = await getCurrentWeather({ latitude: weather.latitude, longitude: weather.longitude });
-    
-    // Get weather data for the approximate time of the notification
-    const forecastTemp = forecast.hourly.temperature_2m[forecastIndex] || weather.Temperature.Metric.Value;
-    const forecastWeatherCode = forecast.hourly.weather_code?.[forecastIndex] || 0;
-    const forecastUVIndex = forecast.hourly.uv_index?.[forecastIndex] || weather.UVIndex || 0;
-    const forecastWeatherText = weatherCodeToText(forecastWeatherCode);
+    let triggerDate = new Date();
+    triggerDate.setHours(hour, minute, 0, 0);
 
-    const suggestions = generateSuggestions(forecastTemp, forecastUVIndex, forecastWeatherText);
+    // If the time has already passed today, schedule for tomorrow
+    if (hour < currentHours || (hour === currentHours && minute <= currentMinutes)) {
+      triggerDate.setDate(triggerDate.getDate() + 1);
+    }
 
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `Cập nhật thời tiết cho ${weather.Location.Name}`,
-        body: `${forecastWeatherText}. Nhiệt độ: ${forecastTemp}°${settings.tempUnit}. ${
-          settings.uvNotifications && forecastUVIndex ? `Chỉ số UV: ${forecastUVIndex}. ` : ''
-        }${suggestions.join(' ')}`,
+        title,
+        body,
       },
       trigger: {
         hour,
         minute,
-        repeats: true,
+        repeats: true, // Repeat daily
+        channelId: 'weather-updates',
       },
     });
   }
@@ -69,7 +76,7 @@ const weatherCodeToText = (code: number): string => {
   return weatherCodes[code] || 'Không xác định';
 };
 
-const generateSuggestions = (temp: number, uvIndex: number, weatherText: string): string[] => {
+const generateSuggestions = (temp: number, weatherText: string): string[] => {
   const suggestions = [];
   if (weatherText.includes('Mưa') || weatherText.includes('Dông')) {
     suggestions.push('Mang ô hoặc áo mưa.');
@@ -79,9 +86,6 @@ const generateSuggestions = (temp: number, uvIndex: number, weatherText: string)
   }
   if (temp > 30 && (weatherText.includes('Trời quang') || weatherText.includes('Có mây'))) {
     suggestions.push('Mặc áo chống nắng và đội mũ.');
-  }
-  if (uvIndex > 5) {
-    suggestions.push('Sử dụng kem chống nắng để bảo vệ da.');
   }
   return suggestions.length > 0 ? suggestions : ['Thời tiết bình thường, hãy tận hưởng ngày mới!'];
 };

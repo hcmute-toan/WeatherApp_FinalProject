@@ -3,7 +3,7 @@ import { SafeAreaView, Text, StyleSheet, View, TouchableOpacity, ScrollView, Ima
 import { LineChart } from 'react-native-chart-kit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Dimensions } from 'react-native';
 import * as Location from 'expo-location';
 
@@ -48,17 +48,27 @@ const HomeTab = () => {
         longitude: deviceLoc.coords.longitude,
       };
     } catch (err) {
-      console.error('Lỗi khi lấy vị trí hiện tại:', err);
+      console.error('Error fetching location:', err);
       throw err;
     }
   };
 
-  const loadLocation = async () => {
+  const loadSettings = async () => {
     try {
       const savedSettings = await AsyncStorage.getItem('settings');
-      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : { tempUnit: 'C', windUnit: 'kmh' };
-      setSettings(parsedSettings);
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        return parsedSettings;
+      }
+    } catch (err) {
+      console.error('Error loading settings:', err);
+    }
+    return { tempUnit: 'C', windUnit: 'kmh' };
+  };
 
+  const loadLocation = async () => {
+    try {
+      const savedSettings = await loadSettings();
       let loc: { city: string; latitude: number; longitude: number };
 
       if (latitude && longitude && city && !isNaN(parseFloat(latitude as string)) && !isNaN(parseFloat(longitude as string))) {
@@ -76,71 +86,91 @@ const HomeTab = () => {
         }
       }
 
-      setLocation(loc);
-      await fetchWeatherData(loc);
+      if (
+        !location ||
+        loc.city !== location.city ||
+        loc.latitude !== location.latitude ||
+        loc.longitude !== location.longitude
+      ) {
+        setLocation(loc);
+        await fetchWeatherData(loc, savedSettings);
+      } else if (
+        savedSettings.tempUnit !== settings.tempUnit ||
+        savedSettings.windUnit !== settings.windUnit
+      ) {
+        await fetchWeatherData(loc, savedSettings);
+      }
     } catch (err) {
-      console.error('Lỗi khi tải vị trí:', err);
+      console.error('Error loading location:', err);
       setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu vị trí hoặc thời tiết. Vui lòng thử lại.');
     }
   };
 
-  useEffect(() => {
-    loadLocation();
-  }, [latitude, longitude, city]);
+  useFocusEffect(
+    useCallback(() => {
+      loadLocation();
+    }, [latitude, longitude, city])
+  );
 
   const fetchWeatherData = useCallback(
-    async (loc: { city: string; latitude: number; longitude: number }) => {
+    async (loc: { city: string; latitude: number; longitude: number }, currentSettings: { tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }) => {
       setIsDataLoaded(false);
       setError(null);
       try {
         const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m,apparent_temperature,wind_direction_10m,uv_index&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=Asia/Bangkok`
+          `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,relative_humidity_2m,apparent_temperature,uv_index,pressure_msl&daily=temperature_2m_max,temperature_2m_min,weather_code,sunset,uv_index_max&timezone=Asia/Bangkok`
         );
         if (!response.ok) {
-          throw new Error('Lỗi khi gọi API thời tiết');
+          throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
         }
         const data = await response.json();
+        console.log('API Response:', data);
 
         if (!data.hourly || !data.daily) {
-          throw new Error('Dữ liệu thời tiết không hợp lệ');
+          throw new Error('API response missing hourly or daily data');
         }
 
         const adjustedWeather = {
           ...data,
           hourly: {
             ...data.hourly,
-            temperature_2m: data.hourly.temperature_2m.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
-            wind_speed_10m: data.hourly.wind_speed_10m.map((speed: number) => convertWindSpeed(speed, settings.windUnit)),
-            apparent_temperature: data.hourly.apparent_temperature.map((temp: number) =>
-              convertTemperature(temp, settings.tempUnit)
-            ),
+            temperature_2m: data.hourly.temperature_2m?.map((temp: number) => convertTemperature(temp, currentSettings.tempUnit)) || [],
+            apparent_temperature: data.hourly.apparent_temperature?.map((temp: number) => convertTemperature(temp, currentSettings.tempUnit)) || [],
+            wind_speed_10m: data.hourly.wind_speed_10m?.map((speed: number) => convertWindSpeed(speed, currentSettings.windUnit)) || [],
+            wind_direction_10m: data.hourly.wind_direction_10m || [],
+            relative_humidity_2m: data.hourly.relative_humidity_2m || [],
+            uv_index: data.hourly.uv_index || [],
+            pressure_msl: data.hourly.pressure_msl || [],
+            time: data.hourly.time || [],
           },
           daily: {
             ...data.daily,
-            temperature_2m_max: data.daily.temperature_2m_max.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
-            temperature_2m_min: data.daily.temperature_2m_min.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
+            temperature_2m_max: data.daily.temperature_2m_max?.map((temp: number) => convertTemperature(temp, currentSettings.tempUnit)) || [],
+            temperature_2m_min: data.daily.temperature_2m_min?.map((temp: number) => convertTemperature(temp, currentSettings.tempUnit)) || [],
+            uv_index_max: data.daily.uv_index_max || [],
+            sunset: data.daily.sunset || [],
           },
         };
 
         setDetailedWeather(adjustedWeather);
         setIsDataLoaded(true);
       } catch (err) {
-        console.error('Lỗi khi lấy chi tiết thời tiết:', err);
+        console.error('Error fetching detailed weather:', err);
         setError('Không thể tải dữ liệu thời tiết. Vui lòng thử lại.');
         setIsDataLoaded(false);
       }
     },
-    [settings.tempUnit, settings.windUnit]
+    []
   );
 
   const convertTemperature = (temp: number, unit: 'C' | 'F') => {
     if (typeof temp !== 'number' || isNaN(temp)) return 0;
-    return unit === 'F' ? (temp * 9) / 5 + 32 : temp;
+    return Math.round(unit === 'F' ? (temp * 9) / 5 + 32 : temp);
   };
 
   const convertWindSpeed = (speed: number, unit: 'kmh' | 'mph') => {
     if (typeof speed !== 'number' || isNaN(speed)) return 0;
-    return unit === 'mph' ? speed / 1.60934 : speed;
+    return Math.round(unit === 'mph' ? speed / 1.60934 : speed);
   };
 
   const weatherCodeToText = (code?: number): string => {
@@ -175,6 +205,11 @@ const HomeTab = () => {
     return directions[index];
   };
 
+  const formatSunsetTime = (sunsetISO: string): string => {
+    const date = new Date(sunsetISO);
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+  };
+
   const getFiveDayData = () => {
     if (!detailedWeather || !detailedWeather.daily) return null;
     const today = new Date();
@@ -186,24 +221,36 @@ const HomeTab = () => {
 
     return {
       days,
-      maxTemps: detailedWeather.daily.temperature_2m_max.slice(0, 5),
-      minTemps: detailedWeather.daily.temperature_2m_min.slice(0, 5),
-      weatherCodes: detailedWeather.daily.weather_code.slice(0, 5),
+      maxTemps: detailedWeather.daily.temperature_2m_max || [],
+      minTemps: detailedWeather.daily.temperature_2m_min || [],
+      weatherCodes: detailedWeather.daily.weather_code || [],
+      sunsets: detailedWeather.daily.sunset || [],
+      uvIndices: detailedWeather.daily.uv_index_max || [],
     };
   };
 
   const get24HourData = (index: number = 0) => {
     if (!detailedWeather || !detailedWeather.hourly) return null;
     const startIndex = index * 24;
-    const hours = detailedWeather.hourly.time.slice(startIndex, startIndex + 24).map((time: string) => time.split('T')[1].slice(0, 5));
-    const temps = detailedWeather.hourly.temperature_2m.slice(startIndex, startIndex + 24);
-    const windSpeeds = detailedWeather.hourly.wind_speed_10m.slice(startIndex, startIndex + 24);
+    const hours = detailedWeather.hourly.time?.slice(startIndex, startIndex + 24).map((time: string) => time.split('T')[1].slice(0, 5)) || [];
+    const temps = detailedWeather.hourly.temperature_2m?.slice(startIndex, startIndex + 24) || [];
+    const windSpeeds = detailedWeather.hourly.wind_speed_10m?.slice(startIndex, startIndex + 24) || [];
+    const windDirections = detailedWeather.hourly.wind_direction_10m?.slice(startIndex, startIndex + 24) || [];
+    const feelsLike = detailedWeather.hourly.apparent_temperature?.slice(startIndex, startIndex + 24) || [];
+    const uvIndices = detailedWeather.hourly.uv_index?.slice(startIndex, startIndex + 24) || [];
+    const pressure = detailedWeather.hourly.pressure_msl?.slice(startIndex, startIndex + 24) || [];
 
-    return { hours, temps, windSpeeds };
+    // Reduce label density by showing every 3rd hour
+    const filteredHours = hours.map((hour: string, idx: number) => (idx % 3 === 0 ? hour : ''));
+
+    return { hours: filteredHours, rawHours: hours, temps, windSpeeds, windDirections, feelsLike, uvIndices, pressure };
   };
 
   const fiveDayData = isDataLoaded ? getFiveDayData() : null;
   const twentyFourHourData = isDataLoaded && selectedDateIndex !== null ? get24HourData(selectedDateIndex) : null;
+
+  const currentDate = new Date();
+  const currentHour = currentDate.getHours();
 
   if (!location || !isDataLoaded) {
     return (
@@ -236,11 +283,11 @@ const HomeTab = () => {
         <View style={styles.currentWeather}>
           <Text style={styles.cityName}>{location.city}</Text>
           <Text style={styles.currentTemp}>
-            {Math.round(detailedWeather.hourly.temperature_2m[0])}°
+            {Math.round(detailedWeather.hourly.temperature_2m[0] || 0)}°{settings.tempUnit}
           </Text>
           <Text style={styles.weatherCondition}>
-            {weatherCodeToText(fiveDayData?.weatherCodes[selectedDateIndex] || detailedWeather.hourly.weather_code[0])}{' '}
-            {fiveDayData?.maxTemps[selectedDateIndex]}°/{fiveDayData?.minTemps[selectedDateIndex]}°
+            {weatherCodeToText(fiveDayData?.weatherCodes[selectedDateIndex] || detailedWeather.hourly.weather_code?.[0] || 0)}{' '}
+            {Math.round(fiveDayData?.maxTemps[selectedDateIndex] || 0)}°/{Math.round(fiveDayData?.minTemps[selectedDateIndex] || 0)}°
           </Text>
           <Text style={styles.aqi}>AQI N/A</Text>
         </View>
@@ -284,7 +331,7 @@ const HomeTab = () => {
                     ],
                     legend: ['Nhiệt độ'],
                   }}
-                  width={1200}
+                  width={1200} // Match SearchPage for consistent label spacing
                   height={400}
                   yAxisLabel=""
                   yAxisSuffix={`°${settings.tempUnit}`}
@@ -299,7 +346,7 @@ const HomeTab = () => {
                     labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
                     style: { borderRadius: 16 },
                     propsForDots: { r: '6', strokeWidth: '2', stroke: '#ffa500' },
-                    propsForLabels: { fontSize: 14 },
+                    propsForLabels: { fontSize: 12 }, // Reduced font size to match SearchPage
                   }}
                   bezier
                   style={styles.chart}
@@ -307,9 +354,9 @@ const HomeTab = () => {
                 {twentyFourHourData.windSpeeds?.length > 0 && (
                   <View style={styles.windSpeedOverlay}>
                     <View style={styles.windSpeedRow}>
-                      {twentyFourHourData.windSpeeds.map((speed: number, index: number) => (
-                        <Text key={index} style={styles.windSpeedText}>
-                          {Math.round(speed)} {settings.windUnit}
+                      {twentyFourHourData.rawHours.map((hour: string, index: number) => (
+                        <Text key={index} style={[styles.windSpeedText, { opacity: index % 3 === 0 ? 1 : 0 }]}>
+                          {Math.round(twentyFourHourData.windSpeeds[index] || 0)} {settings.windUnit}
                         </Text>
                       ))}
                     </View>
@@ -324,25 +371,27 @@ const HomeTab = () => {
         <View style={styles.additionalInfo}>
           <View style={styles.infoItem}>
             <Text style={styles.infoTitle}>UV</Text>
-            <Text style={styles.infoValue}>{detailedWeather.hourly.uv_index[0] || 'N/A'}</Text>
+            <Text style={styles.infoValue}>{Math.round(twentyFourHourData?.uvIndices[0] || fiveDayData?.uvIndices[selectedDateIndex] || 0)}</Text>
           </View>
           <View style={styles.infoItem}>
             <Text style={styles.infoTitle}>Độ ẩm</Text>
-            <Text style={styles.infoValue}>{detailedWeather.hourly.relative_humidity_2m[0] || 'N/A'}%</Text>
+            <Text style={styles.infoValue}>{detailedWeather.hourly.relative_humidity_2m?.[0] || 'N/A'}%</Text>
           </View>
           <View style={styles.infoItem}>
-            <Text style={styles.infoTitle}>Cảm giác nhiệt</Text>
-            <Text style={styles.infoValue}>
-              {detailedWeather.hourly.apparent_temperature[0] ? `${Math.round(detailedWeather.hourly.apparent_temperature[0])}°` : 'N/A'}
-            </Text>
+            <Text style={styles.infoTitle}>Cảm giác như</Text>
+            <Text style={styles.infoValue}>{Math.round(twentyFourHourData?.feelsLike[0] || 0)}°{settings.tempUnit}</Text>
           </View>
           <View style={styles.infoItem}>
-            <Text style={styles.infoTitle}>
-              {getWindDirectionText(detailedWeather.hourly.wind_direction_10m[0])}
-            </Text>
-            <Text style={styles.infoValue}>
-              {detailedWeather.hourly.wind_speed_10m[0] ? `${Math.round(detailedWeather.hourly.wind_speed_10m[0])} ${settings.windUnit}` : 'N/A'}
-            </Text>
+            <Text style={styles.infoTitle}>Hướng</Text>
+            <Text style={styles.infoValue}>{getWindDirectionText(twentyFourHourData?.windDirections[0] || 0)}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoTitle}>Hoàng hôn</Text>
+            <Text style={styles.infoValue}>{formatSunsetTime(fiveDayData?.sunsets[selectedDateIndex] || '2025-05-20T18:09:00Z')}</Text>
+          </View>
+          <View style={styles.infoItem}>
+            <Text style={styles.infoTitle}>Áp suất</Text>
+            <Text style={styles.infoValue}>{detailedWeather.hourly.pressure_msl?.[0] || 'N/A'} mb</Text>
           </View>
         </View>
       </ScrollView>
@@ -456,7 +505,7 @@ const styles = StyleSheet.create({
   windSpeedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: 1200 - 60,
+    width: 1200 - 60, // Adjusted to match chart width
   },
   windSpeedText: {
     color: '#fff',
@@ -466,6 +515,7 @@ const styles = StyleSheet.create({
   },
   additionalInfo: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
@@ -474,7 +524,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     padding: 10,
     alignItems: 'center',
-    width: '23%',
+    width: '30%',
+    marginBottom: 10,
   },
   infoTitle: {
     fontSize: 12,

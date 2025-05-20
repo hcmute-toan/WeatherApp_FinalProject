@@ -9,7 +9,7 @@ import { LineChart } from 'react-native-chart-kit';
 const SearchPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<{ city: string; latitude: number; longitude: number; weather?: { temp: number; description: string; code?: number } }[]>([]);
-  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph'; notificationTimes?: string[]; uvNotifications?: boolean }>({ tempUnit: 'C', windUnit: 'kmh' });
+  const [settings, setSettings] = useState<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<{ city: string; latitude: number; longitude: number; weather?: { temp: number; description: string; code?: number } } | null>(null);
@@ -26,11 +26,10 @@ const SearchPage = () => {
       const savedSettings = await AsyncStorage.getItem('settings');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        console.log('Cài đặt từ AsyncStorage:', parsedSettings);
         return parsedSettings;
       }
     } catch (err) {
-      console.error('Lỗi khi lấy cài đặt:', err);
+      console.error('Error loading settings:', err);
     }
     return { tempUnit: 'C', windUnit: 'kmh' };
   };
@@ -38,20 +37,16 @@ const SearchPage = () => {
   const applySettings = async () => {
     const newSettings = await loadSettings();
     setSettings(newSettings);
-    console.log('Cài đặt mới áp dụng:', newSettings);
     return newSettings;
   };
 
   useFocusEffect(
     useCallback(() => {
-      console.log('Tab focus, bắt đầu kiểm tra cài đặt...');
       const fetchSettingsAndUpdate = async () => {
         const newSettings = await applySettings();
         const settingsChanged = newSettings.tempUnit !== prevSettingsRef.current.tempUnit || newSettings.windUnit !== prevSettingsRef.current.windUnit;
-        console.log('So sánh cài đặt:', { prev: prevSettingsRef.current, new: newSettings, changed: settingsChanged });
 
         if (selectedCity && settingsChanged) {
-          console.log('Cài đặt thay đổi, cập nhật dữ liệu chi tiết cho:', selectedCity.city);
           await handleViewDetails(selectedCity);
         }
         prevSettingsRef.current = { tempUnit: newSettings.tempUnit, windUnit: newSettings.windUnit };
@@ -65,14 +60,13 @@ const SearchPage = () => {
       applySettings().then(newSettings => {
         prevSettingsRef.current = { tempUnit: newSettings.tempUnit, windUnit: newSettings.windUnit };
         settingsLoadedRef.current = true;
-        console.log('Cài đặt ban đầu:', newSettings);
       });
     }
   }, []);
 
   useEffect(() => {
     if (selectedCity && detailedWeather && isDataLoaded && selectedDateIndex !== null) {
-      const hourlyTemp = convertTemperature(detailedWeather.hourly.temperature_2m[selectedDateIndex * 24] || detailedWeather.hourly.temperature_2m[0], settings.tempUnit);
+      const hourlyTemp = detailedWeather.hourly.temperature_2m[selectedDateIndex * 24] || detailedWeather.hourly.temperature_2m[0];
       setSelectedCity(prev =>
         prev
           ? {
@@ -80,10 +74,10 @@ const SearchPage = () => {
               weather: prev.weather
                 ? {
                     ...prev.weather,
-                    temp: hourlyTemp,
+                    temp: Math.round(hourlyTemp),
                     description: prev.weather.description ?? '',
                   }
-                : { temp: hourlyTemp, description: '', code: undefined },
+                : { temp: Math.round(hourlyTemp), description: '', code: undefined },
             }
           : null
       );
@@ -118,7 +112,7 @@ const SearchPage = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(`Lỗi HTTP: ${response.status} - ${response.statusText}`);
+        throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
       }
 
       if (data.results && data.results.length > 0) {
@@ -138,7 +132,7 @@ const SearchPage = () => {
                 },
               };
             } catch (err) {
-              console.error(`Lỗi khi lấy thời tiết cho ${result.name}:`, err);
+              console.error(`Error fetching weather for ${result.name}:`, err);
               return {
                 city: `${result.name}, ${result.country}`,
                 latitude: result.latitude,
@@ -154,12 +148,8 @@ const SearchPage = () => {
         setError(`Không tìm thấy thành phố nào với từ khóa "${query}"`);
       }
     } catch (error) {
-      console.error('Lỗi khi tìm kiếm:', error);
-      if (error instanceof Error) {
-        setError(`Đã có lỗi xảy ra khi tìm kiếm: ${error.message}. Vui lòng thử lại.`);
-      } else {
-        setError('Đã có lỗi xảy ra khi tìm kiếm. Vui lòng thử lại.');
-      }
+      console.error('Search error:', error);
+      setError('Đã có lỗi xảy ra khi tìm kiếm. Vui lòng thử lại.');
     } finally {
       setIsLoading(false);
     }
@@ -173,7 +163,6 @@ const SearchPage = () => {
 
   const weatherCodeToText = (code?: number): string => {
     if (typeof code !== 'number') {
-      console.log('Mã thời tiết không hợp lệ:', code);
       return 'Không xác định';
     }
     const weatherCodes: { [key: number]: string } = {
@@ -196,29 +185,37 @@ const SearchPage = () => {
       96: 'Dông bão kèm mưa đá nhẹ',
       99: 'Dông bão kèm mưa đá lớn',
     };
-    const description = weatherCodes[code] || 'Không xác định';
-    console.log(`Mã thời tiết: ${code} -> ${description}`);
-    return description;
+    return weatherCodes[code] || 'Không xác định';
   };
 
   const convertTemperature = (temp: number, unit: 'C' | 'F') => {
     if (typeof temp !== 'number' || isNaN(temp)) {
-      console.error('Nhiệt độ không hợp lệ:', temp);
+      console.error('Invalid temperature:', temp);
       return 0;
     }
     const convertedTemp = unit === 'F' ? (temp * 9) / 5 + 32 : temp;
-    console.log(`Chuyển đổi nhiệt độ: ${temp}°C -> ${convertedTemp}${unit}`);
     return Math.round(convertedTemp);
   };
 
   const convertWindSpeed = (speed: number, unit: 'kmh' | 'mph') => {
     if (typeof speed !== 'number' || isNaN(speed)) {
-      console.error('Tốc độ gió không hợp lệ:', speed);
+      console.error('Invalid wind speed:', speed);
       return 0;
     }
     const convertedSpeed = unit === 'mph' ? speed / 1.60934 : speed;
-    console.log(`Chuyển đổi tốc độ gió: ${speed} kmh -> ${convertedSpeed} ${unit}`);
     return Math.round(convertedSpeed);
+  };
+
+  const getWindDirectionText = (degrees: number): string => {
+    if (typeof degrees !== 'number' || isNaN(degrees)) return 'Không xác định';
+    const directions = ['Bắc', 'Đông Bắc', 'Đông', 'Đông Nam', 'Nam', 'Tây Nam', 'Tây', 'Tây Bắc'];
+    const index = Math.round(degrees / 45) % 8;
+    return directions[index];
+  };
+
+  const formatSunsetTime = (sunsetISO: string): string => {
+    const date = new Date(sunsetISO);
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
   };
 
   const handleAddFavorite = async (result: { city: string; latitude: number; longitude: number; weather?: { temp: number; description: string; code?: number } }) => {
@@ -233,7 +230,7 @@ const SearchPage = () => {
         setError('Thành phố này đã có trong danh sách yêu thích');
       }
     } catch (err) {
-      console.error('Lỗi khi thêm vào yêu thích:', err);
+      console.error('Error adding favorite:', err);
       setError('Đã có lỗi khi thêm vào danh sách yêu thích');
     }
   };
@@ -246,30 +243,26 @@ const SearchPage = () => {
 
     try {
       const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${result.latitude}&longitude=${result.longitude}&hourly=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,wind_speed_10m_max&timezone=Asia/Bangkok`
+        `https://api.open-meteo.com/v1/forecast?latitude=${result.latitude}&longitude=${result.longitude}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,relative_humidity_2m,apparent_temperature,uv_index&daily=temperature_2m_max,temperature_2m_min,weather_code,sunset&timezone=Asia/Bangkok`
       );
       if (!response.ok) {
-        throw new Error('Lỗi khi gọi API thời tiết');
+        throw new Error('Error fetching weather API');
       }
       const data = await response.json();
-      console.log('Dữ liệu thời tiết gốc từ API:', {
-        hourlyTemps: data.hourly.temperature_2m.slice(0, 5),
-        dailyMaxTemps: data.daily.temperature_2m_max,
-        dailyMinTemps: data.daily.temperature_2m_min,
-      });
 
       const adjustedWeather = {
         ...data,
         hourly: {
           ...data.hourly,
           temperature_2m: data.hourly.temperature_2m.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
+          apparent_temperature: data.hourly.apparent_temperature.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
           wind_speed_10m: data.hourly.wind_speed_10m.map((speed: number) => convertWindSpeed(speed, settings.windUnit)),
         },
         daily: {
           ...data.daily,
           temperature_2m_max: data.daily.temperature_2m_max.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
           temperature_2m_min: data.daily.temperature_2m_min.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
-          wind_speed_10m_max: data.daily.wind_speed_10m_max.map((speed: number) => convertWindSpeed(speed, settings.windUnit)),
+          uv_index_max: data.daily.uv_index_max || [0], // Fallback if not provided
         },
       };
 
@@ -294,7 +287,7 @@ const SearchPage = () => {
         );
       }
     } catch (err) {
-      console.error('Lỗi khi lấy chi tiết thời tiết:', err);
+      console.error('Error fetching detailed weather:', err);
       setError('Không thể tải dữ liệu thời tiết. Vui lòng thử lại.');
       setIsDataLoaded(false);
     }
@@ -302,7 +295,7 @@ const SearchPage = () => {
 
   const getFiveDayData = () => {
     if (!detailedWeather || !detailedWeather.daily) return null;
-    const today = new Date('2025-05-19');
+    const today = new Date();
     const days = Array.from({ length: 5 }, (_, i) => {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
@@ -314,6 +307,8 @@ const SearchPage = () => {
       maxTemps: detailedWeather.daily.temperature_2m_max.slice(0, 5),
       minTemps: detailedWeather.daily.temperature_2m_min.slice(0, 5),
       weatherCodes: detailedWeather.daily.weather_code.slice(0, 5),
+      sunsets: detailedWeather.daily.sunset.slice(0, 5),
+      uvIndices: detailedWeather.daily.uv_index_max.slice(0, 5) || [0],
     };
   };
 
@@ -323,8 +318,11 @@ const SearchPage = () => {
     const hours = detailedWeather.hourly.time.slice(startIndex, startIndex + 24).map((time: string) => time.split('T')[1].slice(0, 5));
     const temps = detailedWeather.hourly.temperature_2m.slice(startIndex, startIndex + 24);
     const windSpeeds = detailedWeather.hourly.wind_speed_10m.slice(startIndex, startIndex + 24);
+    const windDirections = detailedWeather.hourly.wind_direction_10m.slice(startIndex, startIndex + 24);
+    const feelsLike = detailedWeather.hourly.apparent_temperature.slice(startIndex, startIndex + 24);
+    const uvIndices = detailedWeather.hourly.uv_index?.slice(startIndex, startIndex + 24) || Array(24).fill(0);
 
-    return { hours, temps, windSpeeds };
+    return { hours, temps, windSpeeds, windDirections, feelsLike, uvIndices };
   };
 
   const fiveDayData = isDataLoaded ? getFiveDayData() : null;
@@ -378,9 +376,9 @@ const SearchPage = () => {
                 <Text style={styles.cityName}>{selectedCity.city}</Text>
                 {selectedCity.weather && (
                   <>
-                    <Text style={styles.currentTemp}>{Math.round(selectedCity.weather.temp)}°</Text>
+                    <Text style={styles.currentTemp}>{Math.round(selectedCity.weather.temp)}°{settings.tempUnit}</Text>
                     <Text style={styles.weatherCondition}>
-                      {weatherCodeToText(fiveDayData.weatherCodes[selectedDateIndex ?? 0])} {fiveDayData.maxTemps[selectedDateIndex ?? 0]}°/{fiveDayData.minTemps[selectedDateIndex ?? 0]}°
+                      {weatherCodeToText(fiveDayData.weatherCodes[selectedDateIndex ?? 0])} {Math.round(fiveDayData.maxTemps[selectedDateIndex ?? 0])}°/{Math.round(fiveDayData.minTemps[selectedDateIndex ?? 0])}°
                     </Text>
                     <Text style={styles.aqi}>AQI 48</Text>
                   </>
@@ -399,7 +397,7 @@ const SearchPage = () => {
                         source={{ uri: `../assets/icons/${fiveDayData.weatherCodes[index]}.png` }}
                         style={styles.forecastIcon}
                       />
-                      <Text style={styles.forecastTemp}>{fiveDayData.minTemps[index]}° - {fiveDayData.maxTemps[index]}°</Text>
+                      <Text style={styles.forecastTemp}>{Math.round(fiveDayData.minTemps[index])}° - {Math.round(fiveDayData.maxTemps[index])}°</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -467,19 +465,39 @@ const SearchPage = () => {
               <View style={styles.additionalInfo}>
                 <View style={styles.infoItem}>
                   <Text style={styles.infoTitle}>UV</Text>
-                  <Text style={styles.infoValue}>11</Text>
+                  <Text style={styles.infoValue}>
+                    {Math.round(
+                      selectedDateIndex !== null && fiveDayData?.uvIndices[selectedDateIndex] !== undefined
+                        ? fiveDayData.uvIndices[selectedDateIndex]
+                        : 0
+                    )}
+                  </Text>
                 </View>
                 <View style={styles.infoItem}>
                   <Text style={styles.infoTitle}>Độ ẩm</Text>
-                  <Text style={styles.infoValue}>69%</Text>
+                  <Text style={styles.infoValue}>{detailedWeather.hourly.relative_humidity_2m?.[0] || 'N/A'}%</Text>
                 </View>
                 <View style={styles.infoItem}>
-                  <Text style={styles.infoTitle}>Cảm giác nhiệt</Text>
-                  <Text style={styles.infoValue}>36°</Text>
+                  <Text style={styles.infoTitle}>Cảm giác như</Text>
+                  <Text style={styles.infoValue}>{Math.round(twentyFourHourData?.feelsLike[0] || 0)}°{settings.tempUnit}</Text>
                 </View>
                 <View style={styles.infoItem}>
-                  <Text style={styles.infoTitle}>Đông Nam</Text>
-                  <Text style={styles.infoValue}>16.7</Text>
+                  <Text style={styles.infoTitle}>Hướng</Text>
+                  <Text style={styles.infoValue}>{getWindDirectionText(twentyFourHourData?.windDirections[0] || 0)}</Text>
+                </View>
+                <View style={styles.infoItem}>
+                  <Text style={styles.infoTitle}>Hoàng hôn</Text>
+                  <Text style={styles.infoValue}>
+                    {formatSunsetTime(
+                      selectedDateIndex !== null && fiveDayData?.sunsets[selectedDateIndex] !== undefined
+                        ? fiveDayData.sunsets[selectedDateIndex]
+                        : '2025-05-20T18:09:00Z'
+                    )}
+                  </Text>
+                </View>
+                <View style={styles.infoItem}>
+                  <Text style={styles.infoTitle}>Áp suất</Text>
+                  <Text style={styles.infoValue}>{detailedWeather.hourly.pressure_msl?.[0] || 'N/A'} mb</Text>
                 </View>
               </View>
             </>
@@ -627,6 +645,7 @@ const styles = StyleSheet.create({
   },
   additionalInfo: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 20,
   },
@@ -635,7 +654,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     padding: 10,
     alignItems: 'center',
-    width: '23%',
+    width: '30%',
+    marginBottom: 10,
   },
   infoTitle: {
     fontSize: 12,

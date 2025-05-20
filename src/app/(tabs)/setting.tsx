@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { SafeAreaView, Text, StyleSheet, View, Switch, TouchableOpacity } from 'react-native';
+import { SafeAreaView, Text, StyleSheet, View, TextInput, TouchableOpacity } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,10 +8,9 @@ import { scheduleNotifications } from '../../services/notifications';
 import { getCurrentLocation, getCurrentWeather } from '../../services/weather';
 
 const SettingPage = () => {
-  const [notificationTimes, setNotificationTimes] = useState<string[]>(['06:00', '16:00']);
+  const [notificationTimes, setNotificationTimes] = useState<string[]>(['06:00 AM', '04:00 PM']);
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>('C');
   const [windUnit, setWindUnit] = useState<'kmh' | 'mph'>('kmh');
-  const [uvNotifications, setUvNotifications] = useState<boolean>(true);
 
   useEffect(() => {
     (async () => {
@@ -19,10 +18,9 @@ const SettingPage = () => {
         const savedSettings = await AsyncStorage.getItem('settings');
         if (savedSettings) {
           const settings = JSON.parse(savedSettings);
-          setNotificationTimes(settings.notificationTimes || ['06:00', '16:00']);
+          setNotificationTimes(settings.notificationTimes || ['06:00 AM', '04:00 PM']);
           setTempUnit(settings.tempUnit || 'C');
           setWindUnit(settings.windUnit || 'kmh');
-          setUvNotifications(settings.uvNotifications !== undefined ? settings.uvNotifications : true);
         }
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -32,11 +30,24 @@ const SettingPage = () => {
 
   useEffect(() => {
     saveSettings();
-  }, [notificationTimes, tempUnit, windUnit, uvNotifications]);
+  }, [notificationTimes, tempUnit, windUnit]);
+
+  const convertTo24HourFormat = (time: string): string => {
+    const [timePart, period] = time.split(' ');
+    let [hours, minutes] = timePart.split(':').map(Number);
+    
+    if (period.toUpperCase() === 'PM' && hours !== 12) {
+      hours += 12;
+    } else if (period.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  };
 
   const saveSettings = async () => {
     try {
-      const settings = { notificationTimes, tempUnit, windUnit, uvNotifications };
+      const settings = { notificationTimes, tempUnit, windUnit };
       await AsyncStorage.setItem('settings', JSON.stringify(settings));
 
       const loc = await getCurrentLocation();
@@ -45,19 +56,29 @@ const SettingPage = () => {
       const cityData = await cityResponse.json();
       const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
 
-      if (uvNotifications || notificationTimes.length > 0) {
+      if (notificationTimes.length > 0) {
+        const convertedTimes = notificationTimes.map(time => convertTo24HourFormat(time));
         await scheduleNotifications({
           Location: { Name: cityName },
           Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
           WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
-          UVIndex: weather.hourly.uv_index?.[0] || 0,
           latitude: loc.latitude,
           longitude: loc.longitude,
+          notificationTimes: convertedTimes, // Pass converted times
         });
       }
     } catch (error) {
       console.error('Error saving settings:', error);
     }
+  };
+
+  const validateTime = (time: string): string => {
+    const regex = /^([1-9]|1[0-2]):([0-5][0-9]) (AM|PM|am|pm)$/;
+    if (regex.test(time)) {
+      return time.toUpperCase();
+    }
+    alert('Thời gian không hợp lệ. Định dạng phải là HH:MM AM/PM (ví dụ: 06:30 AM). Đã đặt lại thành 12:00 AM.');
+    return '12:00 AM';
   };
 
   const handleNotificationTimeChange = (value: string, index: number) => {
@@ -66,12 +87,21 @@ const SettingPage = () => {
     setNotificationTimes(newTimes);
   };
 
+  const handleTimeBlur = (value: string, index: number) => {
+    const validatedTime = validateTime(value.trim());
+    if (validatedTime !== notificationTimes[index]) {
+      const newTimes = [...notificationTimes];
+      newTimes[index] = validatedTime;
+      setNotificationTimes(newTimes);
+    }
+  };
+
   const addNotificationTime = () => {
     if (notificationTimes.length >= 4) {
       alert('Bạn chỉ có thể thêm tối đa 4 thời gian thông báo.');
       return;
     }
-    setNotificationTimes([...notificationTimes, '12:00']);
+    setNotificationTimes([...notificationTimes, '12:00 AM']);
   };
 
   const removeNotificationTime = (index: number) => {
@@ -89,10 +119,6 @@ const SettingPage = () => {
 
   const handleWindUnitChange = (value: 'kmh' | 'mph') => {
     setWindUnit(value);
-  };
-
-  const handleUvNotificationsChange = (value: boolean) => {
-    setUvNotifications(value);
   };
 
   const weatherCodeToText = (code?: number): string => {
@@ -116,16 +142,15 @@ const SettingPage = () => {
             <Text style={styles.label}>Thời gian thông báo (Tối đa 4)</Text>
             {notificationTimes.map((time, index) => (
               <View key={index} style={styles.notificationRow}>
-                <Picker
-                  selectedValue={time}
-                  onValueChange={(value) => handleNotificationTimeChange(value, index)}
-                  style={styles.picker}
-                >
-                  {Array.from({ length: 24 }, (_, i) => {
-                    const hour = i.toString().padStart(2, '0') + ':00';
-                    return <Picker.Item key={hour} label={hour} value={hour} />;
-                  })}
-                </Picker>
+                <TextInput
+                  style={styles.timeInput}
+                  placeholder="HH:MM AM/PM"
+                  placeholderTextColor="#ccc"
+                  value={time}
+                  onChangeText={(value) => handleNotificationTimeChange(value, index)}
+                  onBlur={() => handleTimeBlur(notificationTimes[index], index)}
+                  keyboardType="default"
+                />
                 {notificationTimes.length > 1 && (
                   <TouchableOpacity style={styles.removeButton} onPress={() => removeNotificationTime(index)}>
                     <Text style={styles.removeButtonText}>Xóa</Text>
@@ -160,15 +185,6 @@ const SettingPage = () => {
               <Picker.Item label="km/h" value="kmh" />
               <Picker.Item label="mph" value="mph" />
             </Picker>
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.label}>Thông báo chỉ số UV</Text>
-            <Switch
-              value={uvNotifications}
-              onValueChange={handleUvNotificationsChange}
-              trackColor={{ false: '#767577', true: APP_COLOR.Default }}
-              thumbColor={uvNotifications ? '#fff' : '#f4f3f4'}
-            />
           </View>
         </View>
       </LinearGradient>
@@ -211,6 +227,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  timeInput: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 10,
+    width: 120,
+    color: '#000',
   },
   removeButton: {
     backgroundColor: '#FF3B30',
