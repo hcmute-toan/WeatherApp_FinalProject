@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SafeAreaView, Text, StyleSheet, View, TextInput, FlatList, TouchableOpacity, Image, Dimensions, ScrollView } from 'react-native';
+import { SafeAreaView, Text, StyleSheet, View, TextInput, FlatList, TouchableOpacity, Image, Dimensions, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Voice from '@react-native-voice/voice';
 import { getCurrentWeather } from '../../services/weather';
 import { router, useFocusEffect } from 'expo-router';
 import { LineChart } from 'react-native-chart-kit';
@@ -16,6 +17,7 @@ const SearchPage = () => {
   const [detailedWeather, setDetailedWeather] = useState<any>(null);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [selectedDateIndex, setSelectedDateIndex] = useState<number | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   const settingsLoadedRef = useRef(false);
   const prevSettingsRef = useRef<{ tempUnit: 'C' | 'F'; windUnit: 'kmh' | 'mph' }>({ tempUnit: 'C', windUnit: 'kmh' });
@@ -29,7 +31,7 @@ const SearchPage = () => {
         return parsedSettings;
       }
     } catch (err) {
-      console.error('Error loading settings:', err);
+      console.error('Lỗi tải cài đặt:', err);
     }
     return { tempUnit: 'C', windUnit: 'kmh' };
   };
@@ -49,7 +51,7 @@ const SearchPage = () => {
         if (selectedCity && settingsChanged) {
           await handleViewDetails(selectedCity);
         }
-        prevSettingsRef.current = { tempUnit: newSettings.tempUnit, windUnit: newSettings.windUnit };
+        prevSettingsRef.current = { tempUnit: newSettings.tempUnit, windUnit: 'kmh' };
       };
       fetchSettingsAndUpdate();
     }, [selectedCity])
@@ -62,7 +64,69 @@ const SearchPage = () => {
         settingsLoadedRef.current = true;
       });
     }
+
+    // Khởi tạo nhận diện giọng nói
+    const initializeVoice = async () => {
+      try {
+        if (!Voice) {
+          setError('Thư viện nhận diện giọng nói không khả dụng. Vui lòng kiểm tra cấu hình dự án.');
+          return;
+        }
+        Voice.onSpeechResults = (e: any) => {
+          const result = e.value[0];
+          if (result) {
+            setSearchQuery(result);
+            handleSearch(result);
+          }
+          setIsRecording(false);
+        };
+        Voice.onSpeechError = (e: any) => {
+          console.error('Lỗi nhận diện giọng nói:', e);
+          setError('Không thể nhận diện giọng nói. Vui lòng thử lại hoặc kiểm tra quyền micro.');
+          setIsRecording(false);
+        };
+      } catch (err) {
+        console.error('Lỗi khởi tạo nhận diện giọng nói:', err);
+        setError('Không thể khởi tạo nhận diện giọng nói. Vui lòng kiểm tra cấu hình.');
+      }
+    };
+    initializeVoice();
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners).catch(err => console.error('Lỗi dọn dẹp Voice:', err));
+    };
   }, []);
+
+  const startVoiceRecognition = async () => {
+    if (!Voice) {
+      setError('Thư viện nhận diện giọng nói không khả dụng. Vui lòng kiểm tra cấu hình dự án.');
+      return;
+    }
+    try {
+      setIsRecording(true);
+      setError(null);
+      await Voice.start('vi-VN');
+    } catch (err) {
+      console.error('Lỗi bắt đầu nhận diện giọng nói:', err);
+      setError('Không thể bắt đầu nhận diện giọng nói. Vui lòng kiểm tra quyền micro hoặc cấu hình.');
+      setIsRecording(false);
+    }
+  };
+
+  const stopVoiceRecognition = async () => {
+    if (!Voice) {
+      setError('Thư viện nhận diện giọng nói không khả dụng.');
+      return;
+    }
+    try {
+      await Voice.stop();
+      setIsRecording(false);
+    } catch (err) {
+      console.error('Lỗi dừng nhận diện giọng nói:', err);
+      setError('Không thể dừng nhận diện giọng nói.');
+      setIsRecording(false);
+    }
+  };
 
   useEffect(() => {
     if (selectedCity && detailedWeather && isDataLoaded && selectedDateIndex !== null) {
@@ -112,7 +176,7 @@ const SearchPage = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
+        throw new Error(`Lỗi HTTP: ${response.status} - ${response.statusText}`);
       }
 
       if (data.results && data.results.length > 0) {
@@ -132,7 +196,7 @@ const SearchPage = () => {
                 },
               };
             } catch (err) {
-              console.error(`Error fetching weather for ${result.name}:`, err);
+              console.error(`Lỗi lấy thời tiết cho ${result.name}:`, err);
               return {
                 city: `${result.name}, ${result.country}`,
                 latitude: result.latitude,
@@ -148,7 +212,7 @@ const SearchPage = () => {
         setError(`Không tìm thấy thành phố nào với từ khóa "${query}"`);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error('Lỗi tìm kiếm:', error);
       setError('Đã có lỗi xảy ra khi tìm kiếm. Vui lòng thử lại.');
     } finally {
       setIsLoading(false);
@@ -190,7 +254,7 @@ const SearchPage = () => {
 
   const convertTemperature = (temp: number, unit: 'C' | 'F') => {
     if (typeof temp !== 'number' || isNaN(temp)) {
-      console.error('Invalid temperature:', temp);
+      console.error('Nhiệt độ không hợp lệ:', temp);
       return 0;
     }
     const convertedTemp = unit === 'F' ? (temp * 9) / 5 + 32 : temp;
@@ -199,7 +263,7 @@ const SearchPage = () => {
 
   const convertWindSpeed = (speed: number, unit: 'kmh' | 'mph') => {
     if (typeof speed !== 'number' || isNaN(speed)) {
-      console.error('Invalid wind speed:', speed);
+      console.error('Tốc độ gió không hợp lệ:', speed);
       return 0;
     }
     const convertedSpeed = unit === 'mph' ? speed / 1.60934 : speed;
@@ -230,7 +294,7 @@ const SearchPage = () => {
         setError('Thành phố này đã có trong danh sách yêu thích');
       }
     } catch (err) {
-      console.error('Error adding favorite:', err);
+      console.error('Lỗi thêm vào yêu thích:', err);
       setError('Đã có lỗi khi thêm vào danh sách yêu thích');
     }
   };
@@ -246,7 +310,7 @@ const SearchPage = () => {
         `https://api.open-meteo.com/v1/forecast?latitude=${result.latitude}&longitude=${result.longitude}&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,relative_humidity_2m,apparent_temperature,uv_index&daily=temperature_2m_max,temperature_2m_min,weather_code,sunset&timezone=Asia/Bangkok`
       );
       if (!response.ok) {
-        throw new Error('Error fetching weather API');
+        throw new Error('Lỗi lấy API thời tiết');
       }
       const data = await response.json();
 
@@ -262,7 +326,7 @@ const SearchPage = () => {
           ...data.daily,
           temperature_2m_max: data.daily.temperature_2m_max.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
           temperature_2m_min: data.daily.temperature_2m_min.map((temp: number) => convertTemperature(temp, settings.tempUnit)),
-          uv_index_max: data.daily.uv_index_max || [0], // Fallback if not provided
+          uv_index_max: data.daily.uv_index_max || [0],
         },
       };
 
@@ -287,7 +351,7 @@ const SearchPage = () => {
         );
       }
     } catch (err) {
-      console.error('Error fetching detailed weather:', err);
+      console.error('Lỗi lấy chi tiết thời tiết:', err);
       setError('Không thể tải dữ liệu thời tiết. Vui lòng thử lại.');
       setIsDataLoaded(false);
     }
@@ -342,6 +406,12 @@ const SearchPage = () => {
           onChangeText={setSearchQuery}
           onSubmitEditing={() => handleSearch(searchQuery)}
         />
+        <TouchableOpacity
+          style={styles.micButton}
+          onPress={isRecording ? stopVoiceRecognition : startVoiceRecognition}
+        >
+          <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
       {isLoading && <Text style={styles.loadingText}>Đang tìm kiếm...</Text>}
       {error && <Text style={styles.errorText}>{error}</Text>}
@@ -358,7 +428,7 @@ const SearchPage = () => {
                 <Text style={styles.cityName}>{item.city}</Text>
               </View>
               <TouchableOpacity style={styles.addButton} onPress={() => handleAddFavorite(item)}>
-                <Text style={styles.addButtonText}>Thêm</Text>
+                <Text style={styles.addButtonText}>+</Text>
               </TouchableOpacity>
             </TouchableOpacity>
           )}
@@ -528,7 +598,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginLeft: 10,
+    marginRight: 10,
     color: '#fff',
+  },
+  micButton: {
+    padding: 10,
   },
   resultItem: {
     flexDirection: 'row',
@@ -536,7 +610,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 10,
-    padding: 15,
+    padding: 10,
     marginHorizontal: 20,
     marginBottom: 10,
   },
@@ -551,8 +625,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   cityName: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#fff',
   },
   currentWeather: {
@@ -682,13 +756,16 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   addButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   addFavoriteButton: {
     position: 'absolute',

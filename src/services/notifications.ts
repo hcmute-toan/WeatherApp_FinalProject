@@ -18,6 +18,7 @@ interface WeatherData {
 }
 
 export const scheduleNotifications = async (weather: WeatherData) => {
+  // Cancel all existing notifications to prevent duplicates
   await Notifications.cancelAllScheduledNotificationsAsync();
 
   const { Location, Temperature, WeatherText, notificationTimes } = weather;
@@ -34,20 +35,26 @@ export const scheduleNotifications = async (weather: WeatherData) => {
   const now = new Date();
   const currentHours = now.getHours();
   const currentMinutes = now.getMinutes();
+  const currentSeconds = now.getSeconds();
+  const currentMilliseconds = now.getMilliseconds();
 
-  for (const time of notificationTimes) {
+  const uniqueTimes = [...new Set(notificationTimes)]; // Remove duplicates
+
+  for (const time of uniqueTimes) {
     const [hour, minute] = time.split(':').map(Number);
     if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
       console.error(`Invalid time format: ${time}`);
       continue;
     }
 
-    let triggerDate = new Date();
-    triggerDate.setHours(hour, minute, 0, 0);
+    // Calculate the time difference in seconds
+    const nowInSeconds = currentHours * 3600 + currentMinutes * 60 + currentSeconds + currentMilliseconds / 1000;
+    const targetInSeconds = hour * 3600 + minute * 60;
 
-    // If the time has already passed today, schedule for tomorrow
-    if (hour < currentHours || (hour === currentHours && minute <= currentMinutes)) {
-      triggerDate.setDate(triggerDate.getDate() + 1);
+    let secondsUntilTrigger = targetInSeconds - nowInSeconds;
+    if (secondsUntilTrigger <= 0) {
+      // If the time has already passed today, schedule for tomorrow
+      secondsUntilTrigger += 24 * 3600; // Add 24 hours in seconds
     }
 
     await Notifications.scheduleNotificationAsync({
@@ -56,12 +63,13 @@ export const scheduleNotifications = async (weather: WeatherData) => {
         body,
       },
       trigger: {
-        hour,
-        minute,
-        repeats: true, // Repeat daily
+        seconds: Math.max(1, secondsUntilTrigger), // Minimum 1 second to avoid immediate trigger
+        repeats: false, // Ensure one-time notification
         channelId: 'weather-updates',
       },
     });
+
+    console.log(`Scheduled one-time notification at ${time} (in ${Math.max(1, secondsUntilTrigger)} seconds from now)`);
   }
 };
 

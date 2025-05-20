@@ -57,8 +57,7 @@ const HomeTab = () => {
     try {
       const savedSettings = await AsyncStorage.getItem('settings');
       if (savedSettings) {
-        const parsedSettings = JSON.parse(savedSettings);
-        return parsedSettings;
+        return JSON.parse(savedSettings);
       }
     } catch (err) {
       console.error('Error loading settings:', err);
@@ -69,6 +68,7 @@ const HomeTab = () => {
   const loadLocation = async () => {
     try {
       const savedSettings = await loadSettings();
+      setSettings(savedSettings); // Update settings state
       let loc: { city: string; latitude: number; longitude: number };
 
       if (latitude && longitude && city && !isNaN(parseFloat(latitude as string)) && !isNaN(parseFloat(longitude as string))) {
@@ -153,6 +153,7 @@ const HomeTab = () => {
         };
 
         setDetailedWeather(adjustedWeather);
+        setSettings(currentSettings); // Ensure settings state is updated
         setIsDataLoaded(true);
       } catch (err) {
         console.error('Error fetching detailed weather:', err);
@@ -240,7 +241,6 @@ const HomeTab = () => {
     const uvIndices = detailedWeather.hourly.uv_index?.slice(startIndex, startIndex + 24) || [];
     const pressure = detailedWeather.hourly.pressure_msl?.slice(startIndex, startIndex + 24) || [];
 
-    // Reduce label density by showing every 3rd hour
     const filteredHours = hours.map((hour: string, idx: number) => (idx % 3 === 0 ? hour : ''));
 
     return { hours: filteredHours, rawHours: hours, temps, windSpeeds, windDirections, feelsLike, uvIndices, pressure };
@@ -331,7 +331,7 @@ const HomeTab = () => {
                     ],
                     legend: ['Nhiệt độ'],
                   }}
-                  width={1200} // Match SearchPage for consistent label spacing
+                  width={1200}
                   height={400}
                   yAxisLabel=""
                   yAxisSuffix={`°${settings.tempUnit}`}
@@ -346,7 +346,7 @@ const HomeTab = () => {
                     labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
                     style: { borderRadius: 16 },
                     propsForDots: { r: '6', strokeWidth: '2', stroke: '#ffa500' },
-                    propsForLabels: { fontSize: 12 }, // Reduced font size to match SearchPage
+                    propsForLabels: { fontSize: 12 },
                   }}
                   bezier
                   style={styles.chart}
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
   windSpeedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: 1200 - 60, // Adjusted to match chart width
+    width: 1200 - 60,
   },
   windSpeedText: {
     color: '#fff',

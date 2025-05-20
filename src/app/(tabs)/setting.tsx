@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { SafeAreaView, Text, StyleSheet, View, TextInput, TouchableOpacity } from 'react-native';
+import { SafeAreaView, Text, StyleSheet, View, TextInput, TouchableOpacity, ScrollView, Animated } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,18 +7,41 @@ import { APP_COLOR } from '../../utils/constant';
 import { scheduleNotifications } from '../../services/notifications';
 import { getCurrentLocation, getCurrentWeather } from '../../services/weather';
 
+interface NotificationTime {
+  hours: string; // 1–12 or empty
+  minutes: string; // 00–59 or empty
+  period: 'AM' | 'PM';
+}
+
 const SettingPage = () => {
-  const [notificationTimes, setNotificationTimes] = useState<string[]>(['06:00 AM', '04:00 PM']);
+  const [notificationTimes, setNotificationTimes] = useState<NotificationTime[]>([
+    { hours: '06', minutes: '00', period: 'AM' },
+    { hours: '04', minutes: '00', period: 'PM' },
+  ]);
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>('C');
   const [windUnit, setWindUnit] = useState<'kmh' | 'mph'>('kmh');
+  const [newTime, setNewTime] = useState<NotificationTime>({ hours: '', minutes: '', period: 'AM' });
+  const [fadeAnim] = useState(new Animated.Value(0)); // For fade-in animation
 
   useEffect(() => {
+    // Fade-in animation on mount
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+
     (async () => {
       try {
         const savedSettings = await AsyncStorage.getItem('settings');
         if (savedSettings) {
           const settings = JSON.parse(savedSettings);
-          setNotificationTimes(settings.notificationTimes || ['06:00 AM', '04:00 PM']);
+          const times = (settings.notificationTimes || ['06:00 AM', '04:00 PM']).map((time: string) => {
+            const [timePart, period] = time.split(' ');
+            const [hours, minutes] = timePart.split(':').map((val: string) => val.padStart(2, '0'));
+            return { hours, minutes, period: period.toUpperCase() as 'AM' | 'PM' };
+          });
+          setNotificationTimes(times);
           setTempUnit(settings.tempUnit || 'C');
           setWindUnit(settings.windUnit || 'kmh');
         }
@@ -28,71 +51,148 @@ const SettingPage = () => {
     })();
   }, []);
 
-  useEffect(() => {
-    saveSettings();
-  }, [notificationTimes, tempUnit, windUnit]);
-
-  const convertTo24HourFormat = (time: string): string => {
-    const [timePart, period] = time.split(' ');
-    let [hours, minutes] = timePart.split(':').map(Number);
-    
-    if (period.toUpperCase() === 'PM' && hours !== 12) {
-      hours += 12;
-    } else if (period.toUpperCase() === 'AM' && hours === 12) {
-      hours = 0;
+  const convertTo24HourFormat = ({ hours, minutes, period }: NotificationTime): string => {
+    if (!hours || !minutes || !period) {
+      throw new Error('Hours, minutes, and period are required');
     }
-
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    const h = parseInt(hours, 10);
+    const m = parseInt(minutes, 10);
+    if (isNaN(h) || isNaN(m) || h < 1 || h > 12 || m < 0 || m > 59) {
+      throw new Error('Invalid time format');
+    }
+    let hours24 = h;
+    if (period === 'PM' && h !== 12) {
+      hours24 += 12;
+    } else if (period === 'AM' && h === 12) {
+      hours24 = 0;
+    }
+    return `${hours24.toString().padStart(2, '0')}:${minutes.padStart(2, '0')}`;
   };
 
-  const saveSettings = async () => {
+  const convertTemperature = (temp: number, unit: 'C' | 'F') => {
+    if (typeof temp !== 'number' || isNaN(temp)) return 0;
+    return Math.round(unit === 'F' ? (temp * 9) / 5 + 32 : temp);
+  };
+
+  const saveSettings = async (showAlert: boolean = true) => {
     try {
-      const settings = { notificationTimes, tempUnit, windUnit };
+      for (const time of notificationTimes) {
+        if (!time.hours || !time.minutes || !time.period) {
+          alert('Vui lòng nhập đầy đủ giờ, phút và AM/PM cho tất cả thời gian thông báo.');
+          return;
+        }
+        const h = parseInt(time.hours, 10);
+        const m = parseInt(time.minutes, 10);
+        if (isNaN(h) || isNaN(m) || h < 1 || h > 12 || m < 0 || m > 59) {
+          alert(`Thời gian không hợp lệ: ${time.hours}:${time.minutes} ${time.period}`);
+          return;
+        }
+      }
+
+      const timesAsStrings = notificationTimes.map(({ hours, minutes, period }) =>
+        `${hours}:${minutes} ${period}`
+      );
+      const settings = { notificationTimes: timesAsStrings, tempUnit, windUnit };
       await AsyncStorage.setItem('settings', JSON.stringify(settings));
 
-      const loc = await getCurrentLocation();
+      const defaultLocation = await AsyncStorage.getItem('defaultLocation');
+      let loc: { city: string; latitude: number; longitude: number };
+      if (defaultLocation) {
+        loc = JSON.parse(defaultLocation);
+      } else {
+        const currentLocation = await getCurrentLocation();
+        loc = {
+          city: 'Vị trí hiện tại',
+          ...currentLocation,
+        };
+      }
+
       const weather = await getCurrentWeather({ latitude: loc.latitude, longitude: loc.longitude });
-      const cityResponse = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${loc.latitude}&longitude=${loc.longitude}`);
-      const cityData = await cityResponse.json();
-      const cityName = cityData.results?.[0]?.name || 'Vị trí hiện tại';
 
       if (notificationTimes.length > 0) {
         const convertedTimes = notificationTimes.map(time => convertTo24HourFormat(time));
         await scheduleNotifications({
-          Location: { Name: cityName },
-          Temperature: { Metric: { Value: weather.hourly.temperature_2m[0], Unit: tempUnit } },
+          Location: { Name: loc.city },
+          Temperature: {
+            Metric: {
+              Value: convertTemperature(weather.hourly.temperature_2m[0], tempUnit),
+              Unit: tempUnit,
+            },
+          },
           WeatherText: weatherCodeToText(weather.hourly.weather_code?.[0]),
           latitude: loc.latitude,
           longitude: loc.longitude,
-          notificationTimes: convertedTimes, // Pass converted times
+          notificationTimes: convertedTimes,
         });
+      }
+      if (showAlert) {
+        alert('Cài đặt đã được lưu thành công.');
       }
     } catch (error) {
       console.error('Error saving settings:', error);
+      alert(`Lỗi khi lưu cài đặt: ${error instanceof Error ? error.message : 'Không xác định'}`);
     }
   };
 
-  const validateTime = (time: string): string => {
-    const regex = /^([1-9]|1[0-2]):([0-5][0-9]) (AM|PM|am|pm)$/;
-    if (regex.test(time)) {
-      return time.toUpperCase();
+  const validateHours = (value: string): string => {
+    if (!value) return '';
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 1 || num > 12) {
+      return '12';
     }
-    alert('Thời gian không hợp lệ. Định dạng phải là HH:MM AM/PM (ví dụ: 06:30 AM). Đã đặt lại thành 12:00 AM.');
-    return '12:00 AM';
+    return num.toString().padStart(2, '0');
   };
 
-  const handleNotificationTimeChange = (value: string, index: number) => {
+  const validateMinutes = (value: string): string => {
+    if (!value) return '';
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 0 || num > 59) {
+      return '00';
+    }
+    return num.toString().padStart(2, '0');
+  };
+
+  const handleNotificationTimeChange = (
+    field: 'hours' | 'minutes' | 'period',
+    value: string,
+    index: number
+  ) => {
     const newTimes = [...notificationTimes];
-    newTimes[index] = value;
+    if (field === 'hours') {
+      newTimes[index].hours = value;
+    } else if (field === 'minutes') {
+      newTimes[index].minutes = value;
+    } else {
+      newTimes[index].period = value as 'AM' | 'PM';
+    }
     setNotificationTimes(newTimes);
   };
 
-  const handleTimeBlur = (value: string, index: number) => {
-    const validatedTime = validateTime(value.trim());
-    if (validatedTime !== notificationTimes[index]) {
-      const newTimes = [...notificationTimes];
-      newTimes[index] = validatedTime;
-      setNotificationTimes(newTimes);
+  const handleTimeBlur = (field: 'hours' | 'minutes', value: string, index: number) => {
+    const newTimes = [...notificationTimes];
+    const originalTime = { ...notificationTimes[index] };
+    if (field === 'hours') {
+      newTimes[index].hours = validateHours(value);
+    } else {
+      newTimes[index].minutes = validateMinutes(value);
+    }
+    setNotificationTimes(newTimes);
+    // Check if the time was changed
+    if (
+      originalTime.hours !== newTimes[index].hours ||
+      originalTime.minutes !== newTimes[index].minutes
+    ) {
+      saveSettings(true); // Trigger save with alert
+    }
+  };
+
+  const handlePeriodChange = (value: 'AM' | 'PM', index: number) => {
+    const newTimes = [...notificationTimes];
+    const originalPeriod = newTimes[index].period;
+    newTimes[index].period = value;
+    setNotificationTimes(newTimes);
+    if (originalPeriod !== value) {
+      saveSettings(true); // Trigger save with alert
     }
   };
 
@@ -101,7 +201,22 @@ const SettingPage = () => {
       alert('Bạn chỉ có thể thêm tối đa 4 thời gian thông báo.');
       return;
     }
-    setNotificationTimes([...notificationTimes, '12:00 AM']);
+    const { hours, minutes, period } = newTime;
+    if (!hours || !minutes || !period) {
+      alert('Vui lòng nhập đầy đủ giờ, phút và AM/PM.');
+      return;
+    }
+    const h = parseInt(hours, 10);
+    const m = parseInt(minutes, 10);
+    if (isNaN(h) || isNaN(m) || h < 1 || h > 12 || m < 0 || m > 59) {
+      alert('Thời gian không hợp lệ. Giờ phải từ 1-12, phút từ 0-59.');
+      return;
+    }
+
+    const newTimes = [...notificationTimes, { hours, minutes, period }];
+    setNotificationTimes(newTimes);
+    setNewTime({ hours: '', minutes: '', period: 'AM' });
+    saveSettings(); // Save with alert
   };
 
   const removeNotificationTime = (index: number) => {
@@ -111,14 +226,39 @@ const SettingPage = () => {
     }
     const newTimes = notificationTimes.filter((_, i) => i !== index);
     setNotificationTimes(newTimes);
+    saveSettings(true); // Save with alert
   };
 
   const handleTempUnitChange = (value: 'C' | 'F') => {
     setTempUnit(value);
+    saveSettings(true); // Save with alert
   };
 
   const handleWindUnitChange = (value: 'kmh' | 'mph') => {
     setWindUnit(value);
+    saveSettings(true); // Save with alert
+  };
+
+  const handleNewTimeChange = (field: 'hours' | 'minutes' | 'period', value: string) => {
+    const updatedTime = { ...newTime };
+    if (field === 'hours') {
+      updatedTime.hours = value;
+    } else if (field === 'minutes') {
+      updatedTime.minutes = value;
+    } else {
+      updatedTime.period = value as 'AM' | 'PM';
+    }
+    setNewTime(updatedTime);
+  };
+
+  const handleNewTimeBlur = (field: 'hours' | 'minutes', value: string) => {
+    const updatedTime = { ...newTime };
+    if (field === 'hours') {
+      updatedTime.hours = validateHours(value);
+    } else {
+      updatedTime.minutes = validateMinutes(value);
+    }
+    setNewTime(updatedTime);
   };
 
   const weatherCodeToText = (code?: number): string => {
@@ -135,58 +275,123 @@ const SettingPage = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient style={styles.gradient} colors={['#1F2A44', '#2A3550']} locations={[0, 0.8]}>
-        <View style={styles.content}>
-          <Text style={styles.heading}>Cài Đặt</Text>
-          <View style={styles.settingItem}>
-            <Text style={styles.label}>Thời gian thông báo (Tối đa 4)</Text>
-            {notificationTimes.map((time, index) => (
-              <View key={index} style={styles.notificationRow}>
+      <LinearGradient style={styles.gradient} colors={['#1E3A8A', '#3B82F6']} locations={[0, 1]}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+            <Text style={styles.heading}>Cài Đặt Thời Tiết</Text>
+            <View style={styles.card}>
+              <Text style={styles.label}>Thời gian thông báo (Tối đa 4)</Text>
+              {notificationTimes.map((time, index) => (
+                <View key={index} style={styles.notificationRow}>
+                  <TextInput
+                    style={styles.timeInput}
+                    placeholder="Giờ (1–12)"
+                    placeholderTextColor="#9CA3AF"
+                    value={time.hours}
+                    onChangeText={(value) => handleNotificationTimeChange('hours', value, index)}
+                    onBlur={() => handleTimeBlur('hours', time.hours, index)}
+                    keyboardType="numeric"
+                    maxLength={2}
+                  />
+                  <Text style={styles.colon}>:</Text>
+                  <TextInput
+                    style={styles.timeInput}
+                    placeholder="Phút (00–59)"
+                    placeholderTextColor="#9CA3AF"
+                    value={time.minutes}
+                    onChangeText={(value) => handleNotificationTimeChange('minutes', value, index)}
+                    onBlur={() => handleTimeBlur('minutes', time.minutes, index)}
+                    keyboardType="numeric"
+                    maxLength={2}
+                  />
+                  <Picker
+                    selectedValue={time.period}
+                    onValueChange={(value) => handlePeriodChange(value, index)}
+                    style={styles.periodPicker}
+                    itemStyle={styles.pickerItem}
+                  >
+                    <Picker.Item label="AM" value="AM" />
+                    <Picker.Item label="PM" value="PM" />
+                  </Picker>
+                  {notificationTimes.length > 1 && (
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => removeNotificationTime(index)}
+                    >
+                      <Text style={styles.removeButtonText}>Xóa</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              <View style={styles.newTimeRow}>
                 <TextInput
                   style={styles.timeInput}
-                  placeholder="HH:MM AM/PM"
-                  placeholderTextColor="#ccc"
-                  value={time}
-                  onChangeText={(value) => handleNotificationTimeChange(value, index)}
-                  onBlur={() => handleTimeBlur(notificationTimes[index], index)}
-                  keyboardType="default"
+                  placeholder="Giờ (1–12)"
+                  placeholderTextColor="#9CA3AF"
+                  value={newTime.hours}
+                  onChangeText={(value) => handleNewTimeChange('hours', value)}
+                  onBlur={() => handleNewTimeBlur('hours', newTime.hours)}
+                  keyboardType="numeric"
+                  maxLength={2}
                 />
-                {notificationTimes.length > 1 && (
-                  <TouchableOpacity style={styles.removeButton} onPress={() => removeNotificationTime(index)}>
-                    <Text style={styles.removeButtonText}>Xóa</Text>
-                  </TouchableOpacity>
-                )}
+                <Text style={styles.colon}>:</Text>
+                <TextInput
+                  style={styles.timeInput}
+                  placeholder="Phút (00–59)"
+                  placeholderTextColor="#9CA3AF"
+                  value={newTime.minutes}
+                  onChangeText={(value) => handleNewTimeChange('minutes', value)}
+                  onBlur={() => handleNewTimeBlur('minutes', newTime.minutes)}
+                  keyboardType="numeric"
+                  maxLength={2}
+                />
+                <Picker
+                  selectedValue={newTime.period}
+                  onValueChange={(value) => handleNewTimeChange('period', value)}
+                  style={styles.periodPicker}
+                  itemStyle={styles.pickerItem}
+                >
+                  <Picker.Item label="AM" value="AM" />
+                  <Picker.Item label="PM" value="PM" />
+                </Picker>
+                <TouchableOpacity
+                  style={[styles.addButton, notificationTimes.length >= 4 && styles.disabledButton]}
+                  onPress={addNotificationTime}
+                  disabled={notificationTimes.length >= 4}
+                >
+                  <Text style={styles.addButtonText}>+</Text>
+                </TouchableOpacity>
               </View>
-            ))}
-            {notificationTimes.length < 4 && (
-              <TouchableOpacity style={styles.addButton} onPress={addNotificationTime}>
-                <Text style={styles.addButtonText}>Thêm thời gian</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.label}>Đơn vị nhiệt độ</Text>
-            <Picker
-              selectedValue={tempUnit}
-              onValueChange={handleTempUnitChange}
-              style={styles.picker}
-            >
-              <Picker.Item label="Celsius (°C)" value="C" />
-              <Picker.Item label="Fahrenheit (°F)" value="F" />
-            </Picker>
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.label}>Đơn vị tốc độ gió</Text>
-            <Picker
-              selectedValue={windUnit}
-              onValueChange={handleWindUnitChange}
-              style={styles.picker}
-            >
-              <Picker.Item label="km/h" value="kmh" />
-              <Picker.Item label="mph" value="mph" />
-            </Picker>
-          </View>
-        </View>
+            </View>
+            <View style={styles.card}>
+              <Text style={styles.label}>Đơn vị nhiệt độ</Text>
+              <Picker
+                selectedValue={tempUnit}
+                onValueChange={handleTempUnitChange}
+                style={styles.picker}
+                itemStyle={styles.pickerItem}
+              >
+                <Picker.Item label="Celsius (°C)" value="C" />
+                <Picker.Item label="Fahrenheit (°F)" value="F" />
+              </Picker>
+            </View>
+            <View style={styles.card}>
+              <Text style={styles.label}>Đơn vị tốc độ gió</Text>
+              <Picker
+                selectedValue={windUnit}
+                onValueChange={handleWindUnitChange}
+                style={styles.picker}
+                itemStyle={styles.pickerItem}
+              >
+                <Picker.Item label="km/h" value="kmh" />
+                <Picker.Item label="mph" value="mph" />
+              </Picker>
+            </View>
+            <TouchableOpacity style={styles.saveButton} onPress={() => saveSettings(true)}>
+              <Text style={styles.saveButtonText}>Lưu Cài Đặt</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -195,67 +400,139 @@ const SettingPage = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 20,
+    backgroundColor: '#F3F4F6',
   },
   gradient: {
     flex: 1,
-    padding: 20,
+  },
+  scrollContent: {
+    padding: 24,
+    paddingBottom: 48,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
   },
   heading: {
-    fontWeight: '700',
-    fontSize: 30,
-    color: '#fff',
-    marginBottom: 20,
+    fontWeight: 'bold',
+    fontSize: 32,
+    color: '#FFFFFF',
+    marginBottom: 24,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
-  settingItem: {
-    marginBottom: 20,
+  card: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   label: {
     fontSize: 18,
-    color: '#fff',
-    marginBottom: 10,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
   },
   picker: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
     height: 50,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  pickerItem: {
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  periodPicker: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    width: 100,
+    height: 50,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   notificationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+  },
+  newTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
   },
   timeInput: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 10,
-    width: 120,
-    color: '#000',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 12,
+    width: 80,
+    color: '#1F2937',
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    fontSize: 16,
+  },
+  colon: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    marginHorizontal: 8,
+    fontWeight: 'bold',
   },
   removeButton: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#EF4444',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    marginLeft: 10,
+    marginLeft: 8,
   },
   removeButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 14,
+    fontWeight: '600',
   },
   addButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
+    backgroundColor: '#3B82F6',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  disabledButton: {
+    backgroundColor: '#9CA3AF',
+    opacity: 0.6,
   },
   addButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  saveButton: {
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignSelf: 'center',
+    marginTop: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 
