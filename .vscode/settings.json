@@ -1,3 +1,4 @@
 {
-  "cSpell.words": ["datetimepicker"]
+  "cSpell.words": ["datetimepicker"],
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

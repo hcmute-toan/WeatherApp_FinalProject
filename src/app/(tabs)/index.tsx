@@ -33,20 +33,53 @@ const HomeTab = () => {
       }
 
       const deviceLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const cityResponse = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${deviceLoc.coords.latitude}&longitude=${deviceLoc.coords.longitude}`
-      );
-      const cityData = await cityResponse.json();
 
-      if (!cityData.results?.[0]?.name) {
-        throw new Error('Không thể xác định tên thành phố từ vị trí hiện tại.');
+      // Try Open-Meteo geocoding API first
+      let cityName = null;
+      try {
+        const cityResponse = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${deviceLoc.coords.latitude}&longitude=${deviceLoc.coords.longitude}&language=vi`
+        );
+        const cityData = await cityResponse.json();
+        cityName = cityData.results?.[0]?.name || cityData.city || null;
+      } catch (err) {
+        console.warn('Open-Meteo geocoding failed:', err);
       }
 
-      return {
-        city: cityData.results[0].name,
+      // Fallback to Nominatim if Open-Meteo fails
+      if (!cityName) {
+        try {
+          const nominatimResponse = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${deviceLoc.coords.latitude}&lon=${deviceLoc.coords.longitude}&zoom=10&addressdetails=1`
+          );
+          const nominatimData = await nominatimResponse.json();
+          cityName = nominatimData.address.city || nominatimData.address.town || nominatimData.address.village || 'Unknown City';
+        } catch (err) {
+          console.warn('Nominatim geocoding failed:', err);
+          throw new Error('Không thể xác định tên thành phố từ vị trí hiện tại.');
+        }
+      }
+
+      const location = {
+        city: cityName,
         latitude: deviceLoc.coords.latitude,
         longitude: deviceLoc.coords.longitude,
       };
+
+      // Save as default location if none exists
+      const defaultLocation = await AsyncStorage.getItem('defaultLocation');
+      if (!defaultLocation) {
+        await AsyncStorage.setItem('defaultLocation', JSON.stringify(location));
+        // Add to favorites with isDefault: true
+        const savedFavorites = await AsyncStorage.getItem('favorites');
+        const favorites = savedFavorites ? JSON.parse(savedFavorites) : [];
+        if (!favorites.some((fav: any) => fav.city === location.city)) {
+          favorites.push({ ...location, isDefault: true });
+          await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
+        }
+      }
+
+      return location;
     } catch (err) {
       console.error('Error fetching location:', err);
       throw err;
@@ -68,9 +101,10 @@ const HomeTab = () => {
   const loadLocation = async () => {
     try {
       const savedSettings = await loadSettings();
-      setSettings(savedSettings); // Update settings state
+      setSettings(savedSettings);
       let loc: { city: string; latitude: number; longitude: number };
 
+      // Check for passed params first
       if (latitude && longitude && city && !isNaN(parseFloat(latitude as string)) && !isNaN(parseFloat(longitude as string))) {
         loc = {
           city: city as string,
@@ -78,6 +112,7 @@ const HomeTab = () => {
           longitude: parseFloat(longitude as string),
         };
       } else {
+        // Prioritize default location
         const defaultLocation = await AsyncStorage.getItem('defaultLocation');
         if (defaultLocation) {
           loc = JSON.parse(defaultLocation);
@@ -124,7 +159,6 @@ const HomeTab = () => {
           throw new Error(`HTTP error: ${response.status} - ${response.statusText}`);
         }
         const data = await response.json();
-        console.log('API Response:', data);
 
         if (!data.hourly || !data.daily) {
           throw new Error('API response missing hourly or daily data');
@@ -153,7 +187,7 @@ const HomeTab = () => {
         };
 
         setDetailedWeather(adjustedWeather);
-        setSettings(currentSettings); // Ensure settings state is updated
+        setSettings(currentSettings);
         setIsDataLoaded(true);
       } catch (err) {
         console.error('Error fetching detailed weather:', err);

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      let recognition;
+      function startRecognition() {
+        recognition = new (window.SpeechRecognition ||
+          window.webkitSpeechRecognition)();
+        recognition.lang = "vi-VN";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onresult = function (event) {
+          const result = event.results[0][0].transcript;
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: "result", data: result })
+          );
+        };
+
+        recognition.onerror = function (event) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: "error", data: event.error })
+          );
+        };
+
+        recognition.onend = function () {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: "end" })
+          );
+        };
+
+        recognition.start();
+      }
+
+      function stopRecognition() {
+        if (recognition) {
+          recognition.stop();
+        }
+      }
+
+      window.addEventListener("message", function (event) {
+        const message = JSON.parse(event.data);
+        if (message.type === "start") {
+          startRecognition();
+        } else if (message.type === "stop") {
+          stopRecognition();
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Đang chờ lệnh...</h1>
+  </body>
+</html>

@@ -74,8 +74,9 @@ const SettingPage = () => {
     return Math.round(unit === 'F' ? (temp * 9) / 5 + 32 : temp);
   };
 
-  const saveSettings = async (showAlert: boolean = true) => {
+  const saveSettings = async () => {
     try {
+      // Validate all notification times
       for (const time of notificationTimes) {
         if (!time.hours || !time.minutes || !time.period) {
           alert('Vui lòng nhập đầy đủ giờ, phút và AM/PM cho tất cả thời gian thông báo.');
@@ -89,12 +90,14 @@ const SettingPage = () => {
         }
       }
 
+      // Save settings to AsyncStorage
       const timesAsStrings = notificationTimes.map(({ hours, minutes, period }) =>
         `${hours}:${minutes} ${period}`
       );
       const settings = { notificationTimes: timesAsStrings, tempUnit, windUnit };
       await AsyncStorage.setItem('settings', JSON.stringify(settings));
 
+      // Get location for notifications
       const defaultLocation = await AsyncStorage.getItem('defaultLocation');
       let loc: { city: string; latitude: number; longitude: number };
       if (defaultLocation) {
@@ -105,10 +108,18 @@ const SettingPage = () => {
           city: 'Vị trí hiện tại',
           ...currentLocation,
         };
+        // Set as default location if none exists
+        await AsyncStorage.setItem('defaultLocation', JSON.stringify(loc));
+        const savedFavorites = await AsyncStorage.getItem('favorites');
+        const favorites = savedFavorites ? JSON.parse(savedFavorites) : [];
+        if (!favorites.some((fav: any) => fav.city === loc.city)) {
+          favorites.push({ ...loc, isDefault: true });
+          await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
+        }
       }
 
+      // Schedule notifications
       const weather = await getCurrentWeather({ latitude: loc.latitude, longitude: loc.longitude });
-
       if (notificationTimes.length > 0) {
         const convertedTimes = notificationTimes.map(time => convertTo24HourFormat(time));
         await scheduleNotifications({
@@ -125,9 +136,8 @@ const SettingPage = () => {
           notificationTimes: convertedTimes,
         });
       }
-      if (showAlert) {
-        alert('Cài đặt đã được lưu thành công.');
-      }
+
+      alert('Cài đặt đã được lưu thành công.');
     } catch (error) {
       console.error('Error saving settings:', error);
       alert(`Lỗi khi lưu cài đặt: ${error instanceof Error ? error.message : 'Không xác định'}`);
@@ -170,30 +180,18 @@ const SettingPage = () => {
 
   const handleTimeBlur = (field: 'hours' | 'minutes', value: string, index: number) => {
     const newTimes = [...notificationTimes];
-    const originalTime = { ...notificationTimes[index] };
     if (field === 'hours') {
       newTimes[index].hours = validateHours(value);
     } else {
       newTimes[index].minutes = validateMinutes(value);
     }
     setNotificationTimes(newTimes);
-    // Check if the time was changed
-    if (
-      originalTime.hours !== newTimes[index].hours ||
-      originalTime.minutes !== newTimes[index].minutes
-    ) {
-      saveSettings(true); // Trigger save with alert
-    }
   };
 
   const handlePeriodChange = (value: 'AM' | 'PM', index: number) => {
     const newTimes = [...notificationTimes];
-    const originalPeriod = newTimes[index].period;
     newTimes[index].period = value;
     setNotificationTimes(newTimes);
-    if (originalPeriod !== value) {
-      saveSettings(true); // Trigger save with alert
-    }
   };
 
   const addNotificationTime = () => {
@@ -216,7 +214,6 @@ const SettingPage = () => {
     const newTimes = [...notificationTimes, { hours, minutes, period }];
     setNotificationTimes(newTimes);
     setNewTime({ hours: '', minutes: '', period: 'AM' });
-    saveSettings(); // Save with alert
   };
 
   const removeNotificationTime = (index: number) => {
@@ -226,17 +223,14 @@ const SettingPage = () => {
     }
     const newTimes = notificationTimes.filter((_, i) => i !== index);
     setNotificationTimes(newTimes);
-    saveSettings(true); // Save with alert
   };
 
   const handleTempUnitChange = (value: 'C' | 'F') => {
     setTempUnit(value);
-    saveSettings(true); // Save with alert
   };
 
   const handleWindUnitChange = (value: 'kmh' | 'mph') => {
     setWindUnit(value);
-    saveSettings(true); // Save with alert
   };
 
   const handleNewTimeChange = (field: 'hours' | 'minutes' | 'period', value: string) => {
@@ -387,7 +381,7 @@ const SettingPage = () => {
                 <Picker.Item label="mph" value="mph" />
               </Picker>
             </View>
-            <TouchableOpacity style={styles.saveButton} onPress={() => saveSettings(true)}>
+            <TouchableOpacity style={styles.saveButton} onPress={saveSettings}>
               <Text style={styles.saveButtonText}>Lưu Cài Đặt</Text>
             </TouchableOpacity>
           </Animated.View>
